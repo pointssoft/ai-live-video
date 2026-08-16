@@ -1,5 +1,7 @@
 name: Build and push GPU worker
 
+# Builds the production and smoke tags from one immutable image.
+
 on:
   workflow_dispatch:
     inputs:
