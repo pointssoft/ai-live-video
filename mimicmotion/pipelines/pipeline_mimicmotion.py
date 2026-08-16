@@ -18,6 +18,7 @@ from diffusers.utils.torch_utils import is_compiled_module, randn_tensor
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from ..modules.pose_net import PoseNet
+from ..utils.inference_contract import resolve_temporal_tiles, validate_pose_sequence
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -449,6 +450,17 @@ class MimicMotionPipeline(DiffusionPipeline):
         width = width or self.unet.config.sample_size * self.vae_scale_factor
 
         num_frames = num_frames if num_frames is not None else self.unet.config.num_frames
+        requested_tile_size = tile_size if tile_size is not None else num_frames
+        resolved_overlap = tile_overlap if tile_overlap is not None else 0
+        validate_pose_sequence(
+            image_pose, num_frames=num_frames, height=height, width=width
+        )
+        tile_size, indices = resolve_temporal_tiles(
+            total_frames=num_frames,
+            requested_tile_size=requested_tile_size,
+            tile_overlap=resolved_overlap,
+        )
+        tile_overlap = resolved_overlap
         decode_chunk_size = decode_chunk_size if decode_chunk_size is not None else num_frames
 
         # 1. Check inputs. Raise error if not correct
@@ -461,6 +473,10 @@ class MimicMotionPipeline(DiffusionPipeline):
             batch_size = len(image)
         else:
             batch_size = image.shape[0]
+        if batch_size != 1 or num_videos_per_prompt != 1:
+            raise ValueError("MimicMotion currently supports exactly one portrait and one output video")
+        if max_guidance_scale <= 1.0:
+            raise ValueError("MimicMotion currently requires guidance scale greater than 1")
         device = device if device is not None else self._execution_device
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
@@ -538,13 +554,10 @@ class MimicMotionPipeline(DiffusionPipeline):
 
         # 8. Denoising loop
         self._num_timesteps = len(timesteps)
-        indices = [[0, *range(i + 1, min(i + tile_size, num_frames))] for i in
-                   range(0, num_frames - tile_size + 1, tile_size - tile_overlap)]
-        if indices[-1][-1] < num_frames - 1:
-            indices.append([0, *range(num_frames - tile_size + 1, num_frames)])
 
         self.pose_net.to(device)
         self.unet.to(device)
+        pose_dtype = next(self.pose_net.parameters()).dtype
 
         with torch.cuda.device(device):
             torch.cuda.empty_cache()
@@ -566,7 +579,8 @@ class MimicMotionPipeline(DiffusionPipeline):
                 for idx in indices:
 
                     # classification-free inference
-                    pose_latents = self.pose_net(image_pose[idx].to(device))
+                    pose_tile = image_pose[idx].to(device=device, dtype=pose_dtype)
+                    pose_latents = self.pose_net(pose_tile)
                     _noise_pred = self.unet(
                         latent_model_input[:1, idx],
                         t,

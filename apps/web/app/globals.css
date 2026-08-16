@@ -1,0 +1,59 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --surface: #151c31;
+  --text: #f4f6fb;
+  --muted: #aeb8cf;
+  --accent: #7c9cff;
+  --danger: #ff9b9b;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172343, var(--bg) 45%); color: var(--text); font-family: Arial, sans-serif; }
+a { color: inherit; }
+.site-header { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-bottom: 1px solid #29334e; }
+.brand { font-weight: 750; text-decoration: none; }
+nav { display: flex; gap: 1.25rem; }
+main { width: min(1080px, 88vw); margin: 0 auto; }
+.hero { padding: 16vh 0; max-width: 700px; }
+h1 { font-size: clamp(2.2rem, 7vw, 4.8rem); line-height: 1; margin: 0.4rem 0 1.2rem; }
+h2 { margin-top: 0; }
+p { color: var(--muted); line-height: 1.6; }
+.eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.8rem; font-weight: 700; }
+.actions, .dashboard-header { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
+.button, button { border: 0; border-radius: 0.65rem; padding: 0.8rem 1rem; background: var(--accent); color: #07102c; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
+button:disabled { cursor: wait; opacity: 0.7; }
+.secondary { background: transparent; color: var(--text); border: 1px solid #65708d; }
+.auth-page { width: min(460px, 100%); margin: 9vh auto; }
+.auth-page h1 { font-size: 2.5rem; }
+.form-card, .panel { display: grid; gap: 0.75rem; padding: 1.5rem; border: 1px solid #2d3855; background: color-mix(in srgb, var(--surface) 92%, transparent); border-radius: 1rem; }
+label { font-weight: 650; }
+input { width: 100%; border: 1px solid #475470; border-radius: 0.55rem; background: #0f1629; color: var(--text); padding: 0.8rem; font: inherit; }
+input:focus { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
+.error { color: var(--danger); }
+.hint { margin: -0.35rem 0 0; font-size: 0.9rem; }
+.dashboard { padding: 8vh 0; display: grid; gap: 1rem; }
+.dashboard h1 { font-size: 3rem; }
+.wizard { padding: 5vh 0 10vh; display: grid; gap: 1.25rem; }
+.wizard h1 { font-size: clamp(2.2rem, 6vw, 4rem); }
+.stepper { display: flex; gap: .5rem; padding: 0; list-style: none; flex-wrap: wrap; }
+.stepper li { padding: .55rem .8rem; border: 1px solid #394661; border-radius: 999px; color: var(--muted); }
+.stepper li[aria-current="step"] { color: var(--text); border-color: var(--accent); background: #1d2c55; }
+.file-button { display: inline-block; width: fit-content; }
+.file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.portrait-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.portrait-card { display: grid; gap: .6rem; background: var(--surface); color: var(--text); border: 2px solid transparent; text-align: left; }
+.portrait-card.selected { border-color: var(--accent); }
+.portrait-card img, .review-grid img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: .6rem; }
+.camera-layout, .review-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); gap: 1rem; }
+.camera-frame { position: relative; overflow: hidden; border-radius: 1rem; background: #030712; }
+.camera-frame video { display: block; width: 100%; max-height: 65vh; transform: scaleX(-1); }
+.framing-guide { position: absolute; inset: 8%; border: 2px dashed rgba(255,255,255,.7); border-radius: 45%; pointer-events: none; }
+.review-grid video { width: 100%; border-radius: .6rem; background: #000; }
+.recording { background: #ff7676; }
+.countdown { font-size: 2rem; color: var(--text); }
+progress { width: 100%; height: 1.2rem; }
+select { width: 100%; margin-top: .5rem; padding: .7rem; background: #0f1629; color: var(--text); border: 1px solid #475470; border-radius: .55rem; }
+button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 700px) { .camera-layout, .review-grid { grid-template-columns: 1fr; } .site-header nav { gap: .65rem; font-size: .9rem; } }
+@media (max-width: 600px) { .site-header { padding: 0 5vw; } main { width: 90vw; } .dashboard-header { align-items: flex-start; } }

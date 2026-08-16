@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://app.example.com"],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["content-type", "x-amz-meta-sha256"],
+    "ExposeHeaders": ["etag"],
+    "MaxAgeSeconds": 3600
+  }
+]

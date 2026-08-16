@@ -20,6 +20,7 @@ from constants import ASPECT_RATIO
 
 from mimicmotion.pipelines.pipeline_mimicmotion import MimicMotionPipeline
 from mimicmotion.utils.loader import create_pipeline
+from mimicmotion.utils.inference_contract import pipeline_pose_kwargs
 from mimicmotion.utils.utils import save_to_mp4
 from mimicmotion.dwpose.preprocess import get_video_pose, get_image_pose
 
@@ -58,28 +59,29 @@ def preprocess(video_path, image_path, resolution=576, sample_stride=2):
     video_pose = get_video_pose(video_path, image_pixels, sample_stride=sample_stride)
     pose_pixels = np.concatenate([np.expand_dims(image_pose, 0), video_pose])
     image_pixels = np.transpose(np.expand_dims(image_pixels, 0), (0, 3, 1, 2))
-    return torch.from_numpy(pose_pixels.copy()) / 127.5 - 1, torch.from_numpy(image_pixels) / 127.5 - 1
+    return (
+        torch.from_numpy(pose_pixels.copy()).float() / 127.5 - 1,
+        torch.from_numpy(image_pixels).float() / 127.5 - 1,
+    )
 
 
 def run_pipeline(pipeline: MimicMotionPipeline, image_pixels, pose_pixels, device, task_config):
     image_pixels = [to_pil_image(img.to(torch.uint8)) for img in (image_pixels + 1.0) * 127.5]
     generator = torch.Generator(device=device)
     generator.manual_seed(task_config.seed)
+    pose_kwargs = pipeline_pose_kwargs(
+        pose_pixels,
+        requested_tile_size=task_config.num_frames,
+        tile_overlap=task_config.frames_overlap,
+    )
     frames = pipeline(
-        image_pixels, image_pose=pose_pixels, num_frames=pose_pixels.size(0),
-        tile_size=task_config.num_frames, tile_overlap=task_config.frames_overlap,
-        height=pose_pixels.shape[-2], width=pose_pixels.shape[-1], fps=7,
+        image_pixels, **pose_kwargs, fps=7,
         noise_aug_strength=task_config.noise_aug_strength, num_inference_steps=task_config.num_inference_steps,
         generator=generator, min_guidance_scale=task_config.guidance_scale, 
         max_guidance_scale=task_config.guidance_scale, decode_chunk_size=8, output_type="pt", device=device
     ).frames.cpu()
     video_frames = (frames * 255.0).to(torch.uint8)
-
-    for vid_idx in range(video_frames.shape[0]):
-        # deprecated first frame because of ref image
-        _video_frames = video_frames[vid_idx, 1:]
-
-    return _video_frames
+    return video_frames[0, 1:]  # Remove the reference-image frame.
 
 
 @torch.no_grad()

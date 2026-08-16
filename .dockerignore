@@ -26,3 +26,9 @@ __pycache__
 
 # Exclude Python virtual environment
 /venv
+/apps/api/.venv
+/apps/api/.env
+
+# Exclude web dependency and build artifacts
+/apps/web/node_modules
+/apps/web/.next

@@ -66,7 +66,8 @@ class DWposeDetector:
 
             return pose
 
+dwpose_model_root = os.environ.get("MIMICMOTION_MODEL_ROOT", "models")
 dwpose_detector = DWposeDetector(
-    model_det="models/DWPose/yolox_l.onnx",
-    model_pose="models/DWPose/dw-ll_ucoco_384.onnx",
+    model_det=os.path.join(dwpose_model_root, "DWPose", "yolox_l.onnx"),
+    model_pose=os.path.join(dwpose_model_root, "DWPose", "dw-ll_ucoco_384.onnx"),
     device=device)

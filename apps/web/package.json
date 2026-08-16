@@ -1,0 +1,33 @@
+{
+  "name": "mimicmotion-web",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "engines": { "node": ">=20 <23" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "next": "15.5.23",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.1",
+    "@testing-library/jest-dom": "6.8.0",
+    "@testing-library/react": "16.3.0",
+    "@types/node": "22.15.30",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "eslint": "9.35.0",
+    "eslint-config-next": "15.5.23",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

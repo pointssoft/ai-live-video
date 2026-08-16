@@ -68,8 +68,10 @@ class Predictor(BasePredictor):
         # Move imports here and make them global
         # This ensures model files are downloaded before importing mimicmotion modules
         global MimicMotionPipeline, create_pipeline, save_to_mp4, get_video_pose, get_image_pose
+        global pipeline_pose_kwargs
         from mimicmotion.pipelines.pipeline_mimicmotion import MimicMotionPipeline
         from mimicmotion.utils.loader import create_pipeline
+        from mimicmotion.utils.inference_contract import pipeline_pose_kwargs
         from mimicmotion.utils.utils import save_to_mp4
         from mimicmotion.dwpose.preprocess import get_video_pose, get_image_pose
 
@@ -314,8 +316,8 @@ class Predictor(BasePredictor):
         image_pixels = np.transpose(np.expand_dims(image_pixels, 0), (0, 3, 1, 2))
 
         return (
-            torch.from_numpy(pose_pixels.copy()) / 127.5 - 1,
-            torch.from_numpy(image_pixels) / 127.5 - 1,
+            torch.from_numpy(pose_pixels.copy()).float() / 127.5 - 1,
+            torch.from_numpy(image_pixels).float() / 127.5 - 1,
         )
 
     def run_pipeline(
@@ -335,19 +337,18 @@ class Predictor(BasePredictor):
             )
             for img in image_pixels
         ]
-        pose_pixels = pose_pixels.unsqueeze(0).to(self.device)
+        pose_kwargs = pipeline_pose_kwargs(
+            pose_pixels,
+            requested_tile_size=num_frames,
+            tile_overlap=frames_overlap,
+        )
 
         generator = torch.Generator(device=self.device)
         generator.manual_seed(seed)
 
         frames = self.pipeline(
             image_pixels,
-            image_pose=pose_pixels,
-            num_frames=pose_pixels.size(1),
-            tile_size=num_frames,
-            tile_overlap=frames_overlap,
-            height=pose_pixels.shape[-2],
-            width=pose_pixels.shape[-1],
+            **pose_kwargs,
             fps=7,
             noise_aug_strength=noise_aug_strength,
             num_inference_steps=num_inference_steps,
