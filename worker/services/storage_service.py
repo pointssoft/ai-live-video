@@ -17,7 +17,12 @@ class StorageService:
         try:
             with self.client.stream("GET", url) as response:
                 if response.status_code != 200:
-                    raise WorkerError("INPUT_DOWNLOAD_FAILED", "DOWNLOADING", response.status_code >= 500, "Input download failed.")
+                    raise WorkerError(
+                        "INPUT_DOWNLOAD_FAILED",
+                        "DOWNLOADING",
+                        response.status_code >= 500,
+                        f"Input download failed with HTTP {response.status_code}.",
+                    )
                 length = response.headers.get("content-length")
                 if length and int(length) != expected_size:
                     raise WorkerError("INPUT_SIZE_MISMATCH", "DOWNLOADING", False, "Input size did not match.")
