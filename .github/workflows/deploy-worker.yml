@@ -1,0 +1,157 @@
+name: Deploy GPU worker to Runpod
+
+on:
+  workflow_run:
+    workflows:
+      - Build and push GPU worker
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable worker tag (sha- followed by 12 lowercase hex characters)
+        required: true
+        type: string
+
+concurrency:
+  group: runpod-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-worker:
+    name: Deploy production endpoint
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+    env:
+      IMAGE_NAME: malaknoyn/mimicmotion-worker
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+
+    steps:
+      - name: Resolve immutable image
+        id: image
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            tag="sha-${WORKFLOW_HEAD_SHA:0:12}"
+            revision="$WORKFLOW_HEAD_SHA"
+          else
+            tag="$INPUT_IMAGE_TAG"
+            revision="manual"
+          fi
+
+          if [[ ! "$tag" =~ ^sha-[0-9a-f]{12}$ ]]; then
+            echo "Image tag must be immutable and match sha-<12 lowercase hex characters>"
+            exit 1
+          fi
+
+          image="${IMAGE_NAME}:${tag}"
+          {
+            echo "image=$image"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RUNPOD_API_KEY" || {
+            echo "RUNPOD_API_KEY is not configured in the production environment"
+            exit 1
+          }
+          test -n "$RUNPOD_ENDPOINT_ID" || {
+            echo "RUNPOD_ENDPOINT_ID is not configured in the production environment"
+            exit 1
+          }
+          if [[ ! "$RUNPOD_ENDPOINT_ID" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "RUNPOD_ENDPOINT_ID has an invalid format"
+            exit 1
+          fi
+
+      - name: Read current endpoint release
+        id: current
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --header "Accept: application/json" \
+            "https://api.runpod.io/v2/serverless/$RUNPOD_ENDPOINT_ID" \
+            --output "$response_file"
+
+          endpoint_id="$(jq -r '.id // empty' "$response_file")"
+          previous_image="$(jq -r '.image // empty' "$response_file")"
+          test "$endpoint_id" = "$RUNPOD_ENDPOINT_ID" || {
+            echo "Runpod returned an unexpected endpoint"
+            exit 1
+          }
+          test -n "$previous_image" || {
+            echo "Runpod endpoint response did not include the current image"
+            exit 1
+          }
+          echo "previous_image=$previous_image" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy image to Runpod endpoint
+        id: deploy
+        shell: bash
+        env:
+          TARGET_IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          request_file="$(mktemp)"
+          response_file="$(mktemp)"
+          trap 'rm -f "$request_file" "$response_file"' EXIT
+
+          jq -n --arg image "$TARGET_IMAGE" '{image: $image}' > "$request_file"
+          curl --fail-with-body --silent --show-error \
+            --request PATCH \
+            --header "Authorization: Bearer $RUNPOD_API_KEY" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --data-binary "@$request_file" \
+            "https://api.runpod.io/v2/serverless/$RUNPOD_ENDPOINT_ID" \
+            --output "$response_file"
+
+          endpoint_id="$(jq -r '.id // empty' "$response_file")"
+          deployed_image="$(jq -r '.image // empty' "$response_file")"
+          test "$endpoint_id" = "$RUNPOD_ENDPOINT_ID" || {
+            echo "Runpod updated an unexpected endpoint"
+            exit 1
+          }
+          test "$deployed_image" = "$TARGET_IMAGE" || {
+            echo "Runpod did not apply the requested image"
+            exit 1
+          }
+          echo "deployed_image=$deployed_image" >> "$GITHUB_OUTPUT"
+
+      - name: Publish deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## Runpod production deployment"
+            echo
+            echo "- Endpoint: \`$RUNPOD_ENDPOINT_ID\`"
+            echo "- Previous image: \`${{ steps.current.outputs.previous_image }}\`"
+            echo "- Deployed image: \`${{ steps.deploy.outputs.deployed_image }}\`"
+            echo "- Source revision: \`${{ steps.image.outputs.revision }}\`"
+            echo "- Rollout: Runpod rolling release accepted"
+          } >> "$GITHUB_STEP_SUMMARY"
