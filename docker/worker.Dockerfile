@@ -23,6 +23,7 @@ RUN useradd -m -u 10001 worker \
     && mkdir -p /tmp/mimicmotion \
     && chown -R worker:worker /tmp/mimicmotion \
     && touch /opt/mimicmotion/.runpod_jobs.pkl /opt/mimicmotion/.runpod_jobs.pkl.lock \
-    && chown worker:worker /opt/mimicmotion/.runpod_jobs.pkl /opt/mimicmotion/.runpod_jobs.pkl.lock
+    && chown worker:worker /opt/mimicmotion \
+        /opt/mimicmotion/.runpod_jobs.pkl /opt/mimicmotion/.runpod_jobs.pkl.lock
 USER worker
 CMD ["python3.11", "-m", "worker.handler"]
