@@ -15,6 +15,7 @@ class GenerationExecutionResponse(BaseModel):
     state: str
     attempt_id: uuid.UUID | None
     provider_status: str | None
+    progress_stage: str | None
     failure_code: str | None
     failure_message: str | None
 
@@ -39,6 +40,7 @@ class GenerationResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     failed_at: datetime | None
+    timed_out_at: datetime | None
     canceled_at: datetime | None
 
 

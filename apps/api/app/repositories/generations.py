@@ -88,6 +88,33 @@ async def list_owned(
     return list(result.scalars())
 
 
+async def get_attempt_by_retry_key(
+    db: AsyncSession,
+    generation_id: uuid.UUID,
+    retry_idempotency_key: str,
+    *,
+    for_update: bool = False,
+) -> GenerationAttempt | None:
+    statement = select(GenerationAttempt).where(
+        GenerationAttempt.generation_id == generation_id,
+        GenerationAttempt.retry_idempotency_key == retry_idempotency_key,
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return (await db.execute(statement)).scalar_one_or_none()
+
+
+async def get_attempt_by_runpod_job_id(
+    db: AsyncSession, runpod_job_id: str, *, for_update: bool = False
+) -> GenerationAttempt | None:
+    statement = select(GenerationAttempt).where(
+        GenerationAttempt.runpod_job_id == runpod_job_id
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return (await db.execute(statement)).scalar_one_or_none()
+
+
 async def get_current_attempt(
     db: AsyncSession, generation_id: uuid.UUID, *, for_update: bool = False
 ) -> GenerationAttempt | None:

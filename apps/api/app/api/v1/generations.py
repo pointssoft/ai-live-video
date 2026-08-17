@@ -43,6 +43,42 @@ async def create_generation(
     return result
 
 
+@router.post(
+    "/{generation_id}/retry",
+    response_model=GenerationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def retry_generation(
+    generation_id: uuid.UUID,
+    request: Request,
+    response: Response,
+    user: CurrentUser,
+    db: DbSession,
+    storage: Storage,
+    _csrf: CsrfProtected,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", max_length=255),
+) -> GenerationResponse:
+    try:
+        result, replayed = await generation_service.retry_generation(
+            db,
+            storage,
+            user,
+            generation_id,
+            idempotency_key,
+            request.state.request_id,
+        )
+    except ValueError as exc:
+        if str(exc) == "IDEMPOTENCY_KEY_INVALID":
+            raise ApiError(
+                422, "IDEMPOTENCY_KEY_INVALID", "The idempotency key is invalid."
+            ) from exc
+        raise
+    if replayed:
+        response.status_code = status.HTTP_200_OK
+        response.headers["Idempotency-Replayed"] = "true"
+    return result
+
+
 @router.get("", response_model=GenerationPage)
 async def list_generations(
     user: CurrentUser,

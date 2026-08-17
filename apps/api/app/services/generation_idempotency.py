@@ -19,6 +19,19 @@ def generation_request_fingerprint(
     return hashlib.sha256(canonical).hexdigest()
 
 
+def retry_request_fingerprint(generation_id: uuid.UUID) -> str:
+    canonical = json.dumps(
+        {
+            "generation_id": str(generation_id),
+            "operation": "generation.retry",
+            "version": 1,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def validate_idempotency_key(value: str) -> str:
     if (
         not 1 <= len(value) <= 255

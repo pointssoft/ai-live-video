@@ -117,6 +117,46 @@ class S3StorageService:
             etag=response.get("ETag", "").strip('"') or None,
         )
 
+    async def verify_object_checksum(
+        self,
+        object_key: str,
+        *,
+        expected_sha256: str,
+        expected_size: int,
+        max_bytes: int,
+    ) -> None:
+        await asyncio.to_thread(
+            self._verify_object_checksum,
+            object_key,
+            expected_sha256,
+            expected_size,
+            max_bytes,
+        )
+
+    def _verify_object_checksum(
+        self, object_key: str, expected_sha256: str, expected_size: int, max_bytes: int
+    ) -> None:
+        response = self.client.get_object(Bucket=self.settings.S3_BUCKET, Key=object_key)
+        body = response["Body"]
+        declared_size = int(response["ContentLength"])
+        if declared_size != expected_size or declared_size > max_bytes:
+            body.close()
+            raise ValueError("OUTPUT_CHECKSUM_SIZE_MISMATCH")
+        digest = hashlib.sha256()
+        read_size = 0
+        try:
+            for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                read_size += len(chunk)
+                if read_size > expected_size or read_size > max_bytes:
+                    raise ValueError("OUTPUT_CHECKSUM_SIZE_MISMATCH")
+                digest.update(chunk)
+        finally:
+            body.close()
+        if read_size != expected_size or digest.hexdigest() != expected_sha256:
+            raise ValueError("OUTPUT_CHECKSUM_MISMATCH")
+
     async def download_object(
         self,
         object_key: str,

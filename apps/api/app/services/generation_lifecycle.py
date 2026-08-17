@@ -3,11 +3,13 @@ from app.models import Generation, GenerationAttempt, GenerationAttemptStatus, G
 GENERATION_TERMINAL = {
     GenerationStatus.SUCCEEDED.value,
     GenerationStatus.FAILED.value,
+    GenerationStatus.TIMED_OUT.value,
     GenerationStatus.CANCELED.value,
 }
 ATTEMPT_TERMINAL = {
     GenerationAttemptStatus.SUCCEEDED.value,
     GenerationAttemptStatus.FAILED.value,
+    GenerationAttemptStatus.TIMED_OUT.value,
     GenerationAttemptStatus.CANCELED.value,
     GenerationAttemptStatus.SUBMISSION_UNKNOWN.value,
 }
@@ -24,20 +26,30 @@ GENERATION_TRANSITIONS = {
         GenerationStatus.CANCEL_REQUESTED.value,
         GenerationStatus.SUCCEEDED.value,
         GenerationStatus.FAILED.value,
+        GenerationStatus.TIMED_OUT.value,
         GenerationStatus.CANCELED.value,
     },
     GenerationStatus.RUNNING.value: {
         GenerationStatus.CANCEL_REQUESTED.value,
         GenerationStatus.SUCCEEDED.value,
         GenerationStatus.FAILED.value,
+        GenerationStatus.TIMED_OUT.value,
         GenerationStatus.CANCELED.value,
     },
     GenerationStatus.CANCEL_REQUESTED.value: {
         GenerationStatus.SUCCEEDED.value,
         GenerationStatus.FAILED.value,
+        GenerationStatus.TIMED_OUT.value,
         GenerationStatus.CANCELED.value,
     },
+    GenerationStatus.FAILED.value: {
+        GenerationStatus.CREATED.value,
+    },
+    GenerationStatus.TIMED_OUT.value: {
+        GenerationStatus.CREATED.value,
+    },
 }
+
 
 ATTEMPT_TRANSITIONS = {
     GenerationAttemptStatus.PENDING.value: {
@@ -55,17 +67,20 @@ ATTEMPT_TRANSITIONS = {
         GenerationAttemptStatus.CANCEL_REQUESTED.value,
         GenerationAttemptStatus.SUCCEEDED.value,
         GenerationAttemptStatus.FAILED.value,
+        GenerationAttemptStatus.TIMED_OUT.value,
         GenerationAttemptStatus.CANCELED.value,
     },
     GenerationAttemptStatus.RUNNING.value: {
         GenerationAttemptStatus.CANCEL_REQUESTED.value,
         GenerationAttemptStatus.SUCCEEDED.value,
         GenerationAttemptStatus.FAILED.value,
+        GenerationAttemptStatus.TIMED_OUT.value,
         GenerationAttemptStatus.CANCELED.value,
     },
     GenerationAttemptStatus.CANCEL_REQUESTED.value: {
         GenerationAttemptStatus.SUCCEEDED.value,
         GenerationAttemptStatus.FAILED.value,
+        GenerationAttemptStatus.TIMED_OUT.value,
         GenerationAttemptStatus.CANCELED.value,
     },
 }

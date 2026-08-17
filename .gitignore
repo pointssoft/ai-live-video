@@ -157,8 +157,8 @@ cython_debug/
 .DS_Store
 _.*
 
-# models and outputs
-models/
+# root model artifacts and outputs
+/models/
 outputs/
 
 # Replicate

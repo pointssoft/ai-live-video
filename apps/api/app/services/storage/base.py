@@ -49,6 +49,15 @@ class StorageService(Protocol):
 
     async def head_object(self, object_key: str) -> ObjectMetadata: ...
 
+    async def verify_object_checksum(
+        self,
+        object_key: str,
+        *,
+        expected_sha256: str,
+        expected_size: int,
+        max_bytes: int,
+    ) -> None: ...
+
     async def download_object(
         self,
         object_key: str,

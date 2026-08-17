@@ -7,6 +7,23 @@ from app.models import Generation, GenerationAttempt, MediaAsset
 from app.services.storage import StorageService
 
 
+def default_inference_parameters() -> dict[str, object]:
+    return {
+        "profile": "mimicmotion-v1.1-balanced-v1",
+        "profile_revision": 1,
+        "model_version": "v1.1",
+        "resolution": 576,
+        "tile_size": 72,
+        "tile_overlap": 6,
+        "num_inference_steps": 25,
+        "noise_aug_strength": 0.0,
+        "guidance_scale": 2.0,
+        "sample_stride": 2,
+        "output_fps": 15,
+        "seed": 42,
+    }
+
+
 class WorkerOutputManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -52,6 +69,7 @@ async def build_worker_input(
         attempt.output_object_key, expires_in_seconds=ttl
     )
     output_expires = min(upload_url.expires_at, head_url.expires_at)
+    inference = attempt.parameters_json
     return {
         "schema_version": "1.0",
         "generation_id": str(generation.id),
@@ -83,18 +101,5 @@ async def build_worker_input(
             "max_bytes": settings.MAX_GENERATED_OUTPUT_BYTES,
             "required_headers": upload_url.headers,
         },
-        "inference": {
-            "profile": "mimicmotion-v1.1-balanced-v1",
-            "profile_revision": 1,
-            "model_version": "v1.1",
-            "resolution": 576,
-            "tile_size": 72,
-            "tile_overlap": 6,
-            "num_inference_steps": 25,
-            "noise_aug_strength": 0.0,
-            "guidance_scale": 2.0,
-            "sample_stride": 2,
-            "output_fps": 15,
-            "seed": 42,
-        },
+        "inference": inference,
     }

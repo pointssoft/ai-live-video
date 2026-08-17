@@ -9,6 +9,7 @@ from app.models import Generation, GenerationAttempt, MediaAsset
 from app.schemas.generations import GenerationCreate
 from app.services.generation_idempotency import (
     generation_request_fingerprint,
+    retry_request_fingerprint,
     validate_idempotency_key,
 )
 from app.services.generation_lifecycle import (
@@ -16,7 +17,7 @@ from app.services.generation_lifecycle import (
     transition_generation,
 )
 from app.services.generation_payload import WorkerResult, build_worker_input
-from app.services.generation_service import decode_cursor, encode_cursor
+from app.services.generation_service import decode_cursor, encode_cursor, retry_allowed
 
 
 def generation() -> Generation:
@@ -192,3 +193,42 @@ def test_worker_result_rejects_wrong_checksum() -> None:
                 },
             }
         )
+
+
+def test_retry_fingerprint_is_generation_scoped() -> None:
+    generation_id = uuid.uuid4()
+    assert retry_request_fingerprint(generation_id) == retry_request_fingerprint(generation_id)
+    assert retry_request_fingerprint(generation_id) != retry_request_fingerprint(uuid.uuid4())
+
+
+def test_retry_allowed_for_retryable_attempt() -> None:
+    item = generation()
+    item.status = "FAILED"
+    attempt = GenerationAttempt(
+        id=uuid.uuid4(),
+        generation_id=item.id,
+        attempt_number=1,
+        status="FAILED",
+        output_object_key="users/u/generations/g/attempts/a/output.mp4",
+        worker_error_retryable=True,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+    assert retry_allowed(item, attempt)
+
+
+def test_retry_rejected_for_deterministic_failure() -> None:
+    item = generation()
+    item.status = "FAILED"
+    attempt = GenerationAttempt(
+        id=uuid.uuid4(),
+        generation_id=item.id,
+        attempt_number=1,
+        status="FAILED",
+        output_object_key="users/u/generations/g/attempts/a/output.mp4",
+        worker_error_code="MEDIA_VALIDATION_FAILED",
+        worker_error_retryable=False,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+    assert not retry_allowed(item, attempt)

@@ -21,8 +21,8 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID"],
-    expose_headers=["X-Request-ID"],
+    allow_headers=["Content-Type", "Idempotency-Key", "X-CSRF-Token", "X-Request-ID"],
+    expose_headers=["Idempotency-Replayed", "X-Request-ID"],
 )
 app.add_exception_handler(ApiError, api_error_handler)
 app.include_router(v1_router)

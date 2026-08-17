@@ -18,6 +18,7 @@ class RunpodStatusResult:
     status: str
     output: Any = None
     error: Any = None
+    progress: str | None = None
 
 
 class RunpodService(Protocol):
@@ -33,6 +34,7 @@ class RunpodClient:
         if not settings.RUNPOD_API_KEY or not settings.RUNPOD_ENDPOINT_ID:
             raise RuntimeError("Runpod orchestration is not configured")
         self.endpoint_id = settings.RUNPOD_ENDPOINT_ID
+        self.webhook_url = settings.RUNPOD_WEBHOOK_URL
         self.client = httpx.AsyncClient(
             base_url=settings.RUNPOD_API_BASE_URL.rstrip("/"),
             headers={"Authorization": f"Bearer {settings.RUNPOD_API_KEY}"},
@@ -40,7 +42,12 @@ class RunpodClient:
         )
 
     async def submit(self, worker_input: dict[str, object]) -> RunpodSubmitResult:
-        response = await self.client.post(f"/{self.endpoint_id}/run", json={"input": worker_input})
+        request_payload: dict[str, object] = {"input": worker_input}
+        if self.webhook_url:
+            request_payload["webhook"] = self.webhook_url
+        response = await self.client.post(
+            f"/{self.endpoint_id}/run", json=request_payload
+        )
         response.raise_for_status()
         payload = response.json()
         job_id = payload.get("id")
@@ -58,12 +65,19 @@ class RunpodClient:
         status = payload.get("status")
         if not isinstance(status, str):
             raise ValueError("Runpod status response is invalid")
+        progress = payload.get("progress")
+        if not isinstance(progress, str):
+            progress = None
         return RunpodStatusResult(
             job_id=job_id,
             status=status,
             output=payload.get("output"),
             error=payload.get("error"),
+            progress=progress,
         )
+
+    async def close(self) -> None:
+        await self.client.aclose()
 
     async def cancel(self, job_id: str) -> None:
         response = await self.client.post(f"/{self.endpoint_id}/cancel/{job_id}")
