@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Generation, GenerationAttempt, MediaAsset, Portrait
@@ -57,7 +57,9 @@ async def get_owned(
     for_update: bool = False,
 ) -> Generation | None:
     statement = select(Generation).where(
-        Generation.id == generation_id, Generation.user_id == user_id
+        Generation.id == generation_id,
+        Generation.user_id == user_id,
+        Generation.deleted_at.is_(None),
     )
     if for_update:
         statement = statement.with_for_update()
@@ -70,7 +72,7 @@ async def list_owned(
     limit: int,
     cursor: tuple[datetime, uuid.UUID] | None,
 ) -> list[Generation]:
-    conditions = [Generation.user_id == user_id]
+    conditions = [Generation.user_id == user_id, Generation.deleted_at.is_(None)]
     if cursor:
         created_at, generation_id = cursor
         conditions.append(
@@ -86,6 +88,22 @@ async def list_owned(
         .limit(limit + 1)
     )
     return list(result.scalars())
+
+
+async def count_user_generations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    statuses: set[str] | None = None,
+    created_since: datetime | None = None,
+) -> int:
+    conditions = [Generation.user_id == user_id, Generation.deleted_at.is_(None)]
+    if statuses:
+        conditions.append(Generation.status.in_(statuses))
+    if created_since:
+        conditions.append(Generation.created_at >= created_since)
+    value = await db.scalar(select(func.count(Generation.id)).where(*conditions))
+    return int(value or 0)
 
 
 async def get_attempt_by_retry_key(

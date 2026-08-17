@@ -1,7 +1,7 @@
 import base64
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,32 @@ from app.services.generation_lifecycle import (
 )
 from app.services.generation_payload import default_inference_parameters
 from app.services.storage import StorageService
+
+
+async def enforce_generation_quota(
+    db: AsyncSession, user_id: uuid.UUID, *, include_daily: bool
+) -> None:
+    settings = get_settings()
+    active = await repository.count_user_generations(
+        db,
+        user_id,
+        statuses={
+            GenerationStatus.CREATED.value,
+            GenerationStatus.QUEUED.value,
+            GenerationStatus.RUNNING.value,
+            GenerationStatus.CANCEL_REQUESTED.value,
+        },
+    )
+    if active >= settings.MAX_ACTIVE_GENERATIONS_PER_USER:
+        raise ApiError(429, "ACTIVE_GENERATION_LIMIT", "Too many generations are active.")
+    if include_daily:
+        now = datetime.now(UTC)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        daily = await repository.count_user_generations(
+            db, user_id, created_since=day_start
+        )
+        if daily >= settings.MAX_DAILY_GENERATIONS_PER_USER:
+            raise ApiError(429, "DAILY_GENERATION_LIMIT", "The daily generation limit was reached.")
 
 
 def retry_allowed(generation: Generation, attempt: GenerationAttempt) -> bool:
@@ -136,6 +162,7 @@ async def create_generation(
             )
         return await response_for(db, storage, existing), True
 
+    await enforce_generation_quota(db, user.id, include_daily=True)
     portrait, portrait_asset, motion = await repository.get_inputs_for_update(
         db, portrait_id, motion_asset_id, user.id
     )
@@ -244,6 +271,7 @@ async def retry_generation(
             )
         return await response_for(db, storage, generation), True
 
+    await enforce_generation_quota(db, user.id, include_daily=False)
     if generation.status not in {
         GenerationStatus.FAILED.value,
         GenerationStatus.TIMED_OUT.value,
@@ -334,6 +362,38 @@ async def list_generations(
         items=[await response_for(db, storage, generation) for generation in selected],
         next_cursor=encode_cursor(selected[-1]) if has_more and selected else None,
     )
+
+
+async def delete_generation(
+    db: AsyncSession,
+    user: User,
+    generation_id: uuid.UUID,
+    request_id: str,
+) -> None:
+    await repository.get_current_attempt(db, generation_id, for_update=True)
+    generation = await repository.get_owned(db, generation_id, user.id, for_update=True)
+    if generation is None:
+        raise ApiError(404, "NOT_FOUND", "The generation was not found.")
+    if generation.status not in GENERATION_TERMINAL:
+        raise ApiError(409, "DELETE_NOT_ALLOWED", "Cancel the generation before deleting it.")
+    now = datetime.now(UTC)
+    generation.deleted_at = now
+    generation.purge_after_at = now + timedelta(
+        seconds=get_settings().GENERATION_OUTPUT_PURGE_DELAY_SECONDS
+    )
+    generation.updated_at = now
+    db.add(
+        AuditEvent(
+            user_id=user.id,
+            action="GENERATION_DELETED",
+            resource_type="generation",
+            resource_id=generation.id,
+            request_id=request_id,
+            metadata_json={},
+            created_at=now,
+        )
+    )
+    await db.commit()
 
 
 async def cancel_generation(

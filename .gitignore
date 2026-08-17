@@ -158,7 +158,7 @@ cython_debug/
 _.*
 
 # root model artifacts and outputs
-/models/
+models/
 outputs/
 
 # Replicate

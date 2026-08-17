@@ -100,7 +100,7 @@ async def get_generation(
     return await generation_service.get_generation(db, storage, user, generation_id)
 
 
-@router.delete("/{generation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{generation_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_generation(
     generation_id: uuid.UUID,
     request: Request,
@@ -109,5 +109,18 @@ async def cancel_generation(
     _csrf: CsrfProtected,
 ) -> None:
     await generation_service.cancel_generation(
+        db, user, generation_id, request.state.request_id
+    )
+
+
+@router.delete("/{generation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generation(
+    generation_id: uuid.UUID,
+    request: Request,
+    user: CurrentUser,
+    db: DbSession,
+    _csrf: CsrfProtected,
+) -> None:
+    await generation_service.delete_generation(
         db, user, generation_id, request.state.request_id
     )

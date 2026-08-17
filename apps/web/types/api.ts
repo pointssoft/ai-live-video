@@ -1,5 +1,6 @@
 export interface ApiErrorBody {
-  error: { code: string; message: string; request_id: string | null; details: unknown };
+  error?: { code: string; message: string; request_id: string | null; details: unknown };
+  detail?: string | Array<{ msg?: string; loc?: Array<string | number> }>;
 }
 
 export interface User { id: string; email: string; status: string; created_at: string }
@@ -28,3 +29,37 @@ export interface Portrait {
   thumbnail_url_expires_at: string | null; created_at: string; updated_at: string;
 }
 export interface PortraitPage { items: Portrait[]; next_cursor: string | null }
+
+export type GenerationStatus = "CREATED" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT" | "CANCEL_REQUESTED" | "CANCELED";
+export type GenerationProgressStage = string | null;
+export interface GenerationExecution {
+  state: GenerationStatus;
+  attempt_id: string | null;
+  provider_status: string | null;
+  progress_stage: GenerationProgressStage;
+  failure_code: string | null;
+  failure_message: string | null;
+}
+export interface GenerationOutput {
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  download_url: string;
+  download_url_expires_at: string;
+}
+export interface Generation {
+  id: string;
+  portrait_id: string;
+  motion_asset_id: string;
+  status: GenerationStatus;
+  execution: GenerationExecution;
+  output: GenerationOutput | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  timed_out_at: string | null;
+  canceled_at: string | null;
+}
+export interface GenerationPage { items: Generation[]; next_cursor: string | null }

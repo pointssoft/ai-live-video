@@ -27,10 +27,13 @@ async function throwApiError(response: Response): Promise<never> {
   } catch {
     // Keep a safe fallback when an intermediary returns a non-JSON response.
   }
+  const message = body?.error?.message
+    ?? (typeof body?.detail === "string" ? body.detail : body?.detail?.[0]?.msg)
+    ?? "The service could not complete the request.";
   throw new ApiClientError(
-    body?.error.message ?? "The service could not complete the request.",
-    body?.error.code ?? "REQUEST_FAILED",
-    body?.error.request_id ?? response.headers.get("X-Request-ID"),
+    message,
+    body?.error?.code ?? "REQUEST_FAILED",
+    body?.error?.request_id ?? response.headers.get("X-Request-ID"),
     response.status,
   );
 }

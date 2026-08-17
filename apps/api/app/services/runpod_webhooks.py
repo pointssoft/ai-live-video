@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -12,6 +13,8 @@ from app.repositories import generations as repository
 from app.schemas.webhooks import RunpodWebhookPayload
 from app.services.runpod import RunpodService
 from app.services.storage import StorageService
+
+logger = logging.getLogger(__name__)
 
 
 async def _get_or_create_event(
@@ -122,6 +125,7 @@ async def ingest_runpod_webhook(
 
     attempt = await repository.get_attempt_by_runpod_job_id(db, payload.runpod_job_id)
     if attempt is None:
+        logger.warning("runpod_webhook_unknown_job", extra={"runpod_job_id": payload.runpod_job_id})
         await _finish_event(
             db,
             event.id,
@@ -138,6 +142,10 @@ async def ingest_runpod_webhook(
         await apply_status(attempt.id, result, settings, storage)
     except Exception as exc:
         detail = str(exc)[:220] or "webhook processing failed"
+        logger.warning(
+            "runpod_webhook_processing_failed",
+            extra={"runpod_job_id": payload.runpod_job_id, "error_type": type(exc).__name__},
+        )
         await _finish_event(
             db,
             event.id,
@@ -153,5 +161,9 @@ async def ingest_runpod_webhook(
         lease_token,
         processed=True,
         error=None,
+    )
+    logger.info(
+        "runpod_webhook_processed",
+        extra={"runpod_job_id": payload.runpod_job_id, "provider_status": payload.status},
     )
     return True

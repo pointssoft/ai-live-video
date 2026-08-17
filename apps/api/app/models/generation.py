@@ -89,3 +89,6 @@ class Generation(Base):
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     timed_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    purge_after_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    output_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
