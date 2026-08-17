@@ -14,7 +14,15 @@ def application() -> JobService:
 
 def handler(job: dict) -> dict:
     try:
-        return application().execute(job.get("input", {}))
+        job_id = job.get("id")
+
+        def progress(stage: str) -> None:
+            if job_id:
+                import runpod
+
+                runpod.serverless.progress_update(job, stage)
+
+        return application().execute(job.get("input", {}), progress)
     except WorkerError:
         raise
     except ValidationError as exc:
@@ -25,7 +33,12 @@ def handler(job: dict) -> dict:
             "The worker input contract is invalid.",
         ) from exc
     except Exception as exc:
-        raise WorkerError("INTERNAL_WORKER_ERROR", "UNKNOWN", True, "The worker could not complete the job.") from exc
+        raise WorkerError(
+            "INTERNAL_WORKER_ERROR",
+            "UNKNOWN",
+            True,
+            "The worker could not complete the job.",
+        ) from exc
 
 
 if __name__ == "__main__":
