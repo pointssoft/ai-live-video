@@ -6,6 +6,7 @@ from PIL import Image
 from app.core.config import Settings
 from app.services.media_validation import (
     MediaValidationError,
+    _duration_from_packet_csv,
     detect_content_type,
     validate_portrait,
 )
@@ -44,3 +45,14 @@ def test_undersized_portrait_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(MediaValidationError) as caught:
         validate_portrait(path, "image/webp", settings())
     assert caught.value.code == "PORTRAIT_TOO_SMALL"
+
+
+def test_packet_timestamps_supply_browser_webm_duration() -> None:
+    output = b"0.000000,N/A\n7.069000,N/A\n7.101000,N/A\n"
+    assert _duration_from_packet_csv(output) == 7101
+
+
+def test_empty_packet_timestamps_are_rejected() -> None:
+    with pytest.raises(MediaValidationError) as caught:
+        _duration_from_packet_csv(b"")
+    assert caught.value.code == "MEDIA_INVALID"

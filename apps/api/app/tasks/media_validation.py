@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import tempfile
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,8 @@ from app.services.media_validation import (
     validate_motion,
     validate_portrait,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def claim_next(settings: Settings, asset_id: uuid.UUID | None = None) -> MediaAsset | None:
@@ -182,7 +185,11 @@ async def process_one(
     except ValueError as exc:
         code = str(exc) if str(exc).startswith("OBJECT_") else "MEDIA_INVALID"
         await finish_failure(asset, code, "The uploaded object is invalid.")
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "media_validation_transient_failure",
+            extra={"asset_id": str(asset.id), "error_type": type(exc).__name__},
+        )
         await finish_transient_failure(asset)
     return asset.id
 

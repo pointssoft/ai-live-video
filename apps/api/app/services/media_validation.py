@@ -130,6 +130,44 @@ def _fps(value: Any) -> float:
     return parsed
 
 
+def _duration_from_packet_csv(output: bytes) -> int:
+    latest_end = 0.0
+    try:
+        for line in output.decode("utf-8").splitlines():
+            values = line.split(",")
+            pts = float(values[0])
+            packet_duration = (
+                float(values[1])
+                if len(values) > 1 and values[1] not in {"", "N/A"}
+                else 0.0
+            )
+            latest_end = max(latest_end, pts + packet_duration)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise MediaValidationError("MEDIA_INVALID", "Video metadata is invalid.") from exc
+    if latest_end <= 0:
+        raise MediaValidationError("MEDIA_INVALID", "Video metadata is invalid.")
+    return round(latest_end * 1000)
+
+
+async def _packet_duration_ms(path: Path, settings: Settings) -> int:
+    code, stdout, _ = await _run_process(
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "packet=pts_time,duration_time",
+        "-of",
+        "csv=p=0",
+        str(path),
+        timeout_seconds=settings.MEDIA_VALIDATION_TIMEOUT_SECONDS,
+    )
+    if code != 0:
+        raise MediaValidationError("MEDIA_INVALID", "Video metadata is invalid.")
+    return _duration_from_packet_csv(stdout)
+
+
 async def validate_motion(path: Path, declared_type: str, settings: Settings) -> ValidationResult:
     detected = detect_content_type(path)
     if detected != declared_type or detected not in {"video/mp4", "video/webm"}:
@@ -170,13 +208,22 @@ async def validate_motion(path: Path, declared_type: str, settings: Settings) ->
                 "VIDEO_CODEC_UNSUPPORTED", "The video codec is not supported."
             )
         duration_value = stream.get("duration") or metadata.get("format", {}).get("duration")
-        duration_ms = round(float(duration_value) * 1000)
+        duration_ms = round(float(duration_value) * 1000) if duration_value else None
         frame_count = _positive_int(stream.get("nb_read_frames") or stream.get("nb_frames"))
-        fps = _fps(stream.get("avg_frame_rate") or stream.get("r_frame_rate"))
     except MediaValidationError:
         raise
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise MediaValidationError("MEDIA_INVALID", "Video metadata is invalid.") from exc
+    if duration_ms is None:
+        duration_ms = await _packet_duration_ms(path, settings)
+    try:
+        fps = _fps(stream.get("avg_frame_rate"))
+    except MediaValidationError as exc:
+        fps = frame_count / (duration_ms / 1000)
+        if fps <= 0 or fps > 240:
+            raise MediaValidationError(
+                "MEDIA_INVALID", "Video frame rate is invalid."
+            ) from exc
     if max(width, height) > settings.MOTION_MAX_DIMENSION:
         raise MediaValidationError(
             "VIDEO_DIMENSIONS_UNSUPPORTED", "Video dimensions are too large."
