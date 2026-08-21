@@ -34,7 +34,12 @@ describe("generation client", () => {
     const [, request] = fetchMock.mock.calls[1];
     expect(request.method).toBe("POST");
     expect(new Headers(request.headers).get("Idempotency-Key")).toBe("generation-key-1");
-    expect(JSON.parse(request.body)).toEqual({ portrait_id: "portrait-1", motion_asset_id: "motion-1" });
+    expect(JSON.parse(request.body)).toEqual({
+      portrait_id: "portrait-1",
+      motion_asset_id: "motion-1",
+      profile: "mimicmotion-v1.1-quality-v1",
+      seed: 42,
+    });
   });
 
   it("maps known and fallback progress stages", async () => {

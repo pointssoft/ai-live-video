@@ -28,6 +28,8 @@ async def create_generation(
             user,
             payload.portrait_id,
             payload.motion_asset_id,
+            payload.profile,
+            payload.seed,
             idempotency_key,
             request.state.request_id,
         )

@@ -9,11 +9,19 @@ export function createIdempotencyKey(action = "generation"): string {
   return `${action}-${crypto.randomUUID()}`;
 }
 
-export const createGeneration = (portraitId: string, motionAssetId: string, idempotencyKey: string) =>
+export type GenerationProfile = "mimicmotion-v1.1-balanced-v1" | "mimicmotion-v1.1-quality-v1";
+
+export const createGeneration = (
+  portraitId: string,
+  motionAssetId: string,
+  idempotencyKey: string,
+  profile: GenerationProfile = "mimicmotion-v1.1-quality-v1",
+  seed = 42,
+) =>
   apiRequest<Generation>("/api/v1/generations", {
     method: "POST",
     headers: idempotencyHeaders(idempotencyKey),
-    body: JSON.stringify({ portrait_id: portraitId, motion_asset_id: motionAssetId }),
+    body: JSON.stringify({ portrait_id: portraitId, motion_asset_id: motionAssetId, profile, seed }),
   });
 
 export const getGeneration = (id: string) =>

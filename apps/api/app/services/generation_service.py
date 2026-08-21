@@ -36,7 +36,7 @@ from app.services.generation_lifecycle import (
     transition_attempt,
     transition_generation,
 )
-from app.services.generation_payload import default_inference_parameters
+from app.services.generation_payload import inference_parameters
 from app.services.storage import StorageService
 
 
@@ -147,11 +147,15 @@ async def create_generation(
     user: User,
     portrait_id: uuid.UUID,
     motion_asset_id: uuid.UUID,
+    profile: str,
+    seed: int,
     idempotency_key: str,
     request_id: str,
 ) -> tuple[GenerationResponse, bool]:
     validate_idempotency_key(idempotency_key)
-    fingerprint = generation_request_fingerprint(portrait_id, motion_asset_id)
+    fingerprint = generation_request_fingerprint(
+        portrait_id, motion_asset_id, profile, seed
+    )
     existing = await repository.get_by_idempotency_key(db, user.id, idempotency_key)
     if existing is not None:
         if existing.request_fingerprint != fingerprint:
@@ -206,7 +210,7 @@ async def create_generation(
         output_object_key=(
             f"users/{user.id}/generations/{generation_id}/attempts/{attempt_id}/output.mp4"
         ),
-        parameters_json=default_inference_parameters(),
+        parameters_json=inference_parameters(profile, seed),
         submission_attempts=0,
         poll_attempts=0,
         created_at=now,

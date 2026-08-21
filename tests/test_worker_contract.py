@@ -157,6 +157,29 @@ class WorkerContractTests(unittest.TestCase):
                 self.assertIsInstance(value, int, name)
                 self.assertGreaterEqual(value, 0, name)
 
+    def test_quality_profile_is_strict_and_accepts_configurable_seed(self):
+        data = payload()
+        data["inference"].update(
+            {
+                "profile": "mimicmotion-v1.1-quality-v1",
+                "tile_overlap": 12,
+                "num_inference_steps": 35,
+                "noise_aug_strength": 0.02,
+                "guidance_scale": 2.5,
+                "sample_stride": 1,
+                "seed": 12345,
+            }
+        )
+        contract = WorkerInputV1.model_validate(data)
+        self.assertEqual(contract.inference.seed, 12345)
+        self.assertEqual(contract.inference.num_inference_steps, 35)
+
+    def test_quality_profile_rejects_balanced_parameters(self):
+        data = payload()
+        data["inference"]["profile"] = "mimicmotion-v1.1-quality-v1"
+        with self.assertRaises(ValueError):
+            WorkerInputV1.model_validate(data)
+
     def test_rejects_host_suffix_attack(self):
         data = payload()
         data["portrait"]["download_url"] = (

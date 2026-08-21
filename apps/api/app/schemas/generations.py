@@ -1,7 +1,12 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+GenerationProfile = Literal[
+    "mimicmotion-v1.1-balanced-v1", "mimicmotion-v1.1-quality-v1"
+]
 
 
 class GenerationCreate(BaseModel):
@@ -9,6 +14,8 @@ class GenerationCreate(BaseModel):
 
     portrait_id: uuid.UUID
     motion_asset_id: uuid.UUID
+    profile: GenerationProfile = "mimicmotion-v1.1-quality-v1"
+    seed: int = Field(default=42, ge=0, le=9_007_199_254_740_991)
 
 
 class GenerationExecutionResponse(BaseModel):

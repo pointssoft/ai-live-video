@@ -9,7 +9,7 @@ import { useDirectUpload } from "@/hooks/useDirectUpload";
 import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 import { currentUser } from "@/lib/auth";
 import { ApiClientError } from "@/lib/errors";
-import { createGeneration, createIdempotencyKey } from "@/lib/generations";
+import { createGeneration, createIdempotencyKey, type GenerationProfile } from "@/lib/generations";
 import { createPortrait, listPortraits } from "@/lib/portraits";
 import type { Portrait, Upload, UploadContentType } from "@/types/api";
 
@@ -21,6 +21,8 @@ export function CreateWizard() {
   const [motion, setMotion] = useState<Upload | null>(null);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [profile, setProfile] = useState<GenerationProfile>("mimicmotion-v1.1-quality-v1");
+  const [seed, setSeed] = useState(42);
   const submissionKey = useRef<string | null>(null);
   const camera = useCamera();
   const portraitAspectRatio = portrait?.original_asset.width && portrait.original_asset.height
@@ -96,7 +98,13 @@ export function CreateWizard() {
     setMessage("Submitting generation…");
     submissionKey.current ??= createIdempotencyKey();
     try {
-      const generation = await createGeneration(portrait.id, motion.id, submissionKey.current);
+      const generation = await createGeneration(
+        portrait.id,
+        motion.id,
+        submissionKey.current,
+        profile,
+        seed,
+      );
       router.push(`/generations/${generation.id}`);
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "Could not start generation.");
@@ -150,8 +158,20 @@ export function CreateWizard() {
       {step === "ready" && portrait && motion && (
         <div>
           <h1>Ready to generate</h1>
-          <div className="panel"><p>Your inputs passed validation. Generation uses cloud GPU processing and may take several minutes. Source files are stored privately according to the service retention policy. Source audio is not included in the generated video.</p></div>
-          <div className="actions"><button className="secondary" disabled={submitting} onClick={() => setStep("portrait")}>Change inputs</button><button disabled={submitting} onClick={() => void submitGeneration()}>{submitting ? "Starting…" : "Generate video"}</button></div>
+          <div className="panel">
+            <p>Your inputs are ready. Quality mode uses cloud GPU processing and may take several minutes.</p>
+            <label>Generation profile
+              <select disabled={submitting} value={profile} onChange={(event) => { setProfile(event.target.value as GenerationProfile); submissionKey.current = null; }}>
+                <option value="mimicmotion-v1.1-quality-v1">High quality (recommended)</option>
+                <option value="mimicmotion-v1.1-balanced-v1">Balanced (faster)</option>
+              </select>
+            </label>
+            <label>Seed
+              <input disabled={submitting} type="number" min="0" max="9007199254740991" step="1" value={seed} onChange={(event) => { setSeed(Number(event.target.value)); submissionKey.current = null; }} />
+            </label>
+            <p>Quality: 35 steps, stride 1, guidance 2.5, overlap 12. Source audio is not included.</p>
+          </div>
+          <div className="actions"><button className="secondary" disabled={submitting} onClick={() => setStep("portrait")}>Change inputs</button><button disabled={submitting || !Number.isSafeInteger(seed) || seed < 0} onClick={() => void submitGeneration()}>{submitting ? "Starting…" : "Generate video"}</button></div>
         </div>
       )}
     </section>

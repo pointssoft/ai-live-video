@@ -31,18 +31,37 @@ class OutputObject(StrictModel):
     required_headers: dict[str, str]
 
 class InferenceProfile(StrictModel):
-    profile: Literal["mimicmotion-v1.1-balanced-v1"]
+    profile: Literal[
+        "mimicmotion-v1.1-balanced-v1", "mimicmotion-v1.1-quality-v1"
+    ]
     profile_revision: Literal[1]
     model_version: Literal["v1.1"]
     resolution: Literal[576]
     tile_size: Literal[72]
-    tile_overlap: Literal[6]
-    num_inference_steps: Literal[25]
-    noise_aug_strength: Literal[0.0]
-    guidance_scale: Literal[2.0]
-    sample_stride: Literal[2]
+    tile_overlap: Literal[6, 12]
+    num_inference_steps: Literal[25, 35]
+    noise_aug_strength: Literal[0.0, 0.02]
+    guidance_scale: Literal[2.0, 2.5]
+    sample_stride: Literal[1, 2]
     output_fps: Literal[15]
-    seed: int
+    seed: int = Field(ge=0, le=9_007_199_254_740_991)
+
+    @model_validator(mode="after")
+    def validate_profile_snapshot(self):
+        expected = {
+            "mimicmotion-v1.1-balanced-v1": (6, 25, 0.0, 2.0, 2),
+            "mimicmotion-v1.1-quality-v1": (12, 35, 0.02, 2.5, 1),
+        }[self.profile]
+        actual = (
+            self.tile_overlap,
+            self.num_inference_steps,
+            self.noise_aug_strength,
+            self.guidance_scale,
+            self.sample_stride,
+        )
+        if actual != expected:
+            raise ValueError("inference parameters do not match the selected profile")
+        return self
 
 class WorkerInputV1(StrictModel):
     schema_version: Literal["1.0"]

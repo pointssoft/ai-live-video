@@ -24,6 +24,29 @@ def default_inference_parameters() -> dict[str, object]:
     }
 
 
+def inference_parameters(profile: str, seed: int) -> dict[str, object]:
+    profiles: dict[str, dict[str, object]] = {
+        "mimicmotion-v1.1-balanced-v1": default_inference_parameters(),
+        "mimicmotion-v1.1-quality-v1": {
+            "profile": "mimicmotion-v1.1-quality-v1",
+            "profile_revision": 1,
+            "model_version": "v1.1",
+            "resolution": 576,
+            "tile_size": 72,
+            "tile_overlap": 12,
+            "num_inference_steps": 35,
+            "noise_aug_strength": 0.02,
+            "guidance_scale": 2.5,
+            "sample_stride": 1,
+            "output_fps": 15,
+            "seed": 42,
+        },
+    }
+    parameters = dict(profiles[profile])
+    parameters["seed"] = seed
+    return parameters
+
+
 class WorkerOutputManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

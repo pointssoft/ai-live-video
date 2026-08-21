@@ -4,14 +4,19 @@ import uuid
 
 
 def generation_request_fingerprint(
-    portrait_id: uuid.UUID, motion_asset_id: uuid.UUID
+    portrait_id: uuid.UUID,
+    motion_asset_id: uuid.UUID,
+    profile: str = "mimicmotion-v1.1-balanced-v1",
+    seed: int = 42,
 ) -> str:
     canonical = json.dumps(
         {
             "motion_asset_id": str(motion_asset_id),
             "operation": "generation.create",
             "portrait_id": str(portrait_id),
-            "version": 1,
+            "profile": profile,
+            "seed": seed,
+            "version": 2,
         },
         sort_keys=True,
         separators=(",", ":"),

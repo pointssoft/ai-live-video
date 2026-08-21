@@ -16,7 +16,11 @@ from app.services.generation_lifecycle import (
     InvalidGenerationTransition,
     transition_generation,
 )
-from app.services.generation_payload import WorkerResult, build_worker_input
+from app.services.generation_payload import (
+    WorkerResult,
+    build_worker_input,
+    inference_parameters,
+)
 from app.services.generation_service import decode_cursor, encode_cursor, retry_allowed
 
 
@@ -175,6 +179,24 @@ def test_generation_transition_is_idempotent() -> None:
     item = generation()
     transition_generation(item, "CREATED")
     assert item.status == "CREATED"
+
+
+def test_quality_profile_parameters_and_seed() -> None:
+    parameters = inference_parameters("mimicmotion-v1.1-quality-v1", 12345)
+    assert parameters == {
+        "profile": "mimicmotion-v1.1-quality-v1",
+        "profile_revision": 1,
+        "model_version": "v1.1",
+        "resolution": 576,
+        "tile_size": 72,
+        "tile_overlap": 12,
+        "num_inference_steps": 35,
+        "noise_aug_strength": 0.02,
+        "guidance_scale": 2.5,
+        "sample_stride": 1,
+        "output_fps": 15,
+        "seed": 12345,
+    }
 
 
 def test_worker_result_accepts_stage_timings() -> None:
