@@ -177,6 +177,39 @@ def test_generation_transition_is_idempotent() -> None:
     assert item.status == "CREATED"
 
 
+def test_worker_result_accepts_stage_timings() -> None:
+    result = WorkerResult.model_validate(
+        {
+            "schema_version": "1.0",
+            "generation_id": str(uuid.uuid4()),
+            "attempt_id": str(uuid.uuid4()),
+            "status": "completed",
+            "timings": {
+                "total_worker_ms": 100,
+                "input_validation_ms": 1,
+                "input_download_ms": 2,
+                "media_processing_ms": 3,
+                "model_cache_hit": False,
+                "model_load_ms": 10,
+                "preprocessing_ms": 15,
+                "pipeline_ms": 50,
+                "output_encoding_ms": 10,
+                "output_upload_ms": 8,
+                "output_verification_ms": 1,
+            },
+            "output": {
+                "object_key": "users/u/generations/g/attempts/a/output.mp4",
+                "sha256": "a" * 64,
+                "content_type": "video/mp4",
+                "size_bytes": 10,
+            },
+        }
+    )
+
+    assert result.timings is not None
+    assert result.timings.pipeline_ms == 50
+
+
 def test_worker_result_rejects_wrong_checksum() -> None:
     with pytest.raises(ValueError):
         WorkerResult.model_validate(

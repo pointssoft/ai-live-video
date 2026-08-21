@@ -1,5 +1,6 @@
 from pathlib import Path
 from threading import Lock
+from time import perf_counter_ns
 from typing import ClassVar
 
 
@@ -42,12 +43,12 @@ class ModelService:
         if invalid:
             raise RuntimeError("Model artifacts are incomplete:\n" + "\n".join(invalid))
 
-    def _load(self):
+    def _load(self) -> bool:
         if self._pipeline is not None:
-            return
+            return True
         with self._lock:
             if self._pipeline is not None:
-                return
+                return True
             import torch
             from omegaconf import OmegaConf
 
@@ -72,8 +73,13 @@ class ModelService:
                 self._pipeline = create_pipeline(config, torch.device("cuda"))
             finally:
                 torch.set_default_dtype(previous_dtype)
+            return False
 
-    def generate(self, portrait: Path, motion: Path, output: Path, profile) -> None:
+    @staticmethod
+    def _elapsed_ms(start_ns: int) -> int:
+        return round((perf_counter_ns() - start_ns) / 1_000_000)
+
+    def generate(self, portrait: Path, motion: Path, output: Path, profile) -> dict:
         import os
 
         import torch
@@ -82,7 +88,9 @@ class ModelService:
         from inference import preprocess, run_pipeline
         from mimicmotion.utils.utils import save_to_mp4
 
-        self._load()
+        load_started = perf_counter_ns()
+        model_cache_hit = self._load()
+        model_load_ms = self._elapsed_ms(load_started) if not model_cache_hit else 0
         task = type(
             "Profile",
             (),
@@ -93,10 +101,27 @@ class ModelService:
             },
         )()
         with self._lock:
+            preprocess_started = perf_counter_ns()
             pose, image = preprocess(
                 str(motion), str(portrait), profile.resolution, profile.sample_stride
             )
+            preprocessing_ms = self._elapsed_ms(preprocess_started)
+
+            torch.cuda.synchronize()
+            pipeline_started = perf_counter_ns()
             frames = run_pipeline(
                 self._pipeline, image, pose, torch.device("cuda"), task
             )
+            torch.cuda.synchronize()
+            pipeline_ms = self._elapsed_ms(pipeline_started)
+
+            encoding_started = perf_counter_ns()
             save_to_mp4(frames, str(output), fps=profile.output_fps)
+            output_encoding_ms = self._elapsed_ms(encoding_started)
+        return {
+            "model_cache_hit": model_cache_hit,
+            "model_load_ms": model_load_ms,
+            "preprocessing_ms": preprocessing_ms,
+            "pipeline_ms": pipeline_ms,
+            "output_encoding_ms": output_encoding_ms,
+        }

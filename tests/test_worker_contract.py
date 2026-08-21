@@ -81,6 +81,13 @@ class FakeModel:
     def generate(self, portrait, motion, output, profile):
         self.motion = motion
         output.write_bytes(b"video")
+        return {
+            "model_cache_hit": True,
+            "model_load_ms": 0,
+            "preprocessing_ms": 11,
+            "pipeline_ms": 22,
+            "output_encoding_ms": 33,
+        }
 
 
 class FakeMedia:
@@ -142,6 +149,13 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(model.motion.name, "motion.normalized.mp4")
         self.assertEqual(media.motion[0], model.motion)
         self.assertEqual(media.motion[1:], (5000, 15000))
+        self.assertTrue(result["timings"]["model_cache_hit"])
+        self.assertEqual(result["timings"]["pipeline_ms"], 22)
+        self.assertGreaterEqual(result["timings"]["total_worker_ms"], 0)
+        for name, value in result["timings"].items():
+            if name != "model_cache_hit":
+                self.assertIsInstance(value, int, name)
+                self.assertGreaterEqual(value, 0, name)
 
     def test_rejects_host_suffix_attack(self):
         data = payload()

@@ -33,6 +33,22 @@ class WorkerOutputManifest(BaseModel):
     size_bytes: int = Field(gt=0)
 
 
+class WorkerTimings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_worker_ms: int = Field(ge=0)
+    input_validation_ms: int = Field(ge=0)
+    input_download_ms: int = Field(ge=0)
+    media_processing_ms: int = Field(ge=0)
+    model_cache_hit: bool
+    model_load_ms: int = Field(ge=0)
+    preprocessing_ms: int = Field(ge=0)
+    pipeline_ms: int = Field(ge=0)
+    output_encoding_ms: int = Field(ge=0)
+    output_upload_ms: int = Field(ge=0)
+    output_verification_ms: int = Field(ge=0)
+
+
 class WorkerResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +56,7 @@ class WorkerResult(BaseModel):
     generation_id: uuid.UUID
     attempt_id: uuid.UUID
     status: str
+    timings: WorkerTimings | None = None
     output: WorkerOutputManifest
 
 

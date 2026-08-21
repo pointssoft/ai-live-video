@@ -1,3 +1,5 @@
+from time import perf_counter_ns
+
 from worker.config import WorkerConfig
 from worker.contracts import WorkerInputV1
 from worker.errors import WorkerError
@@ -19,7 +21,13 @@ class JobService:
         )
         self.media = media or MediaService()
 
+    @staticmethod
+    def _elapsed_ms(start_ns: int) -> int:
+        return round((perf_counter_ns() - start_ns) / 1_000_000)
+
     def execute(self, raw_input: dict, progress=None) -> dict:
+        job_started = perf_counter_ns()
+        stage_started = job_started
         report = progress or (lambda stage: None)
         report("VALIDATING_INPUT")
         contract = WorkerInputV1.model_validate(raw_input)
@@ -48,7 +56,9 @@ class JobService:
             motion_source = workspace / "motion.source"
             motion_normalized = workspace / "motion.normalized.mp4"
             output = workspace / "output.mp4"
+            input_validation_ms = self._elapsed_ms(stage_started)
             report("DOWNLOADING")
+            stage_started = perf_counter_ns()
             self.storage.download(
                 contract.portrait.download_url,
                 portrait,
@@ -61,7 +71,9 @@ class JobService:
                 contract.motion_video.size_bytes,
                 contract.motion_video.sha256,
             )
+            input_download_ms = self._elapsed_ms(stage_started)
             report("VALIDATING_MEDIA")
+            stage_started = perf_counter_ns()
             self.media.probe_portrait(portrait)
             self.media.normalize_motion(motion_source, motion_normalized)
             self.media.probe_motion(
@@ -69,25 +81,39 @@ class JobService:
                 contract.motion_video.min_duration_ms,
                 contract.motion_video.max_duration_ms,
             )
+            media_processing_ms = self._elapsed_ms(stage_started)
             report("RUNNING_INFERENCE")
-            self.model.generate(
+            model_timings = self.model.generate(
                 portrait, motion_normalized, output, contract.inference
             )
             report("UPLOADING_OUTPUT")
+            stage_started = perf_counter_ns()
             size, digest = self.storage.upload(
                 contract.output.upload_url,
                 output,
                 contract.output.required_headers,
                 min(contract.output.max_bytes, self.config.max_output_bytes),
             )
+            output_upload_ms = self._elapsed_ms(stage_started)
             report("VERIFYING_OUTPUT")
+            stage_started = perf_counter_ns()
             self.storage.verify_upload(contract.output.head_url, size)
+            output_verification_ms = self._elapsed_ms(stage_started)
             report("COMPLETED")
             return {
                 "schema_version": "1.0",
                 "generation_id": str(contract.generation_id),
                 "attempt_id": str(contract.attempt_id),
                 "status": "completed",
+                "timings": {
+                    "total_worker_ms": self._elapsed_ms(job_started),
+                    "input_validation_ms": input_validation_ms,
+                    "input_download_ms": input_download_ms,
+                    "media_processing_ms": media_processing_ms,
+                    **(model_timings or {}),
+                    "output_upload_ms": output_upload_ms,
+                    "output_verification_ms": output_verification_ms,
+                },
                 "output": {
                     "object_key": contract.output.object_key,
                     "sha256": digest,
