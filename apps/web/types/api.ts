@@ -24,7 +24,7 @@ export interface Upload {
 }
 export interface Portrait {
   id: string; status: "READY";
-  original_asset: { id: string; content_type: string; size_bytes: number; sha256: string; width: number; height: number };
+  original_asset: { id: string; content_type: string; size_bytes: number; sha256: string; width: number | null; height: number | null };
   image_url: string; image_url_expires_at: string; thumbnail_url: string | null;
   thumbnail_url_expires_at: string | null; created_at: string; updated_at: string;
 }

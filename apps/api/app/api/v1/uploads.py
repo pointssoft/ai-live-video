@@ -166,9 +166,11 @@ async def complete_upload(
         )
     ).scalar_one()
     if locked_asset.state == MediaState.UPLOADING.value:
-        locked_asset.state = MediaState.UPLOADED.value
+        locked_asset.state = MediaState.READY.value
+        locked_asset.detected_content_type = locked_asset.content_type
         locked_asset.provider_etag = metadata.etag
         locked_asset.uploaded_at = now
+        locked_asset.ready_at = now
         locked_asset.updated_at = now
         await db.commit()
     return UploadResponse.model_validate(locked_asset)

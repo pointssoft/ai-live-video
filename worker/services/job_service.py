@@ -1,6 +1,7 @@
 from worker.config import WorkerConfig
 from worker.contracts import WorkerInputV1
 from worker.errors import WorkerError
+from worker.services.media_service import MediaService
 from worker.services.model_service import ModelService
 from worker.services.storage_service import StorageService
 from worker.url_security import validate_storage_url
@@ -9,13 +10,14 @@ from worker.workspace import job_workspace
 
 class JobService:
     def __init__(
-        self, config: WorkerConfig, storage=None, model=None
+        self, config: WorkerConfig, storage=None, model=None, media=None
     ) -> None:
         self.config = config
         self.storage = storage or StorageService()
         self.model = model or ModelService(
             config.model_root, config.artifacts_ready_path
         )
+        self.media = media or MediaService()
 
     def execute(self, raw_input: dict, progress=None) -> dict:
         report = progress or (lambda stage: None)
@@ -43,7 +45,8 @@ class JobService:
             self.config.workspace_root, contract.attempt_id
         ) as workspace:
             portrait = workspace / "portrait.source"
-            motion = workspace / "motion.source"
+            motion_source = workspace / "motion.source"
+            motion_normalized = workspace / "motion.normalized.mp4"
             output = workspace / "output.mp4"
             report("DOWNLOADING")
             self.storage.download(
@@ -54,12 +57,22 @@ class JobService:
             )
             self.storage.download(
                 contract.motion_video.download_url,
-                motion,
+                motion_source,
                 contract.motion_video.size_bytes,
                 contract.motion_video.sha256,
             )
+            report("VALIDATING_MEDIA")
+            self.media.probe_portrait(portrait)
+            self.media.normalize_motion(motion_source, motion_normalized)
+            self.media.probe_motion(
+                motion_normalized,
+                contract.motion_video.min_duration_ms,
+                contract.motion_video.max_duration_ms,
+            )
             report("RUNNING_INFERENCE")
-            self.model.generate(portrait, motion, output, contract.inference)
+            self.model.generate(
+                portrait, motion_normalized, output, contract.inference
+            )
             report("UPLOADING_OUTPUT")
             size, digest = self.storage.upload(
                 contract.output.upload_url,

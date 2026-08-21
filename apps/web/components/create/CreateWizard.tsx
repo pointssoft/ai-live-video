@@ -23,9 +23,9 @@ export function CreateWizard() {
   const [submitting, setSubmitting] = useState(false);
   const submissionKey = useRef<string | null>(null);
   const camera = useCamera();
-  const portraitAspectRatio = portrait
+  const portraitAspectRatio = portrait?.original_asset.width && portrait.original_asset.height
     ? portrait.original_asset.width / portrait.original_asset.height
-    : null;
+    : 3 / 4;
   const recorder = useMediaRecorder(camera.stream, portraitAspectRatio);
   const transfer = useDirectUpload();
   const portraitTransfer = useDirectUpload();
@@ -123,7 +123,7 @@ export function CreateWizard() {
           <h1>Select a portrait</h1>
           <p>Use one clearly visible person in good lighting.</p>
           <label className="button file-button">Upload portrait<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => event.target.files?.[0] && void uploadPortrait(event.target.files[0])} /></label>
-          <div className="portrait-grid">{portraits.map((item) => <button className={`portrait-card ${portrait?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => setPortrait(item)}><img src={item.image_url} alt="Uploaded portrait" /><span>{item.original_asset.width}×{item.original_asset.height}</span></button>)}</div>
+          <div className="portrait-grid">{portraits.map((item) => <button className={`portrait-card ${portrait?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => setPortrait(item)}><img src={item.image_url} alt="Uploaded portrait" /><span>{item.original_asset.width && item.original_asset.height ? `${item.original_asset.width}×${item.original_asset.height}` : "Portrait"}</span></button>)}</div>
           <button disabled={!portrait} onClick={() => setStep("camera")}>Continue to camera</button>
         </div>
       )}

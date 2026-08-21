@@ -38,7 +38,7 @@ def decode_cursor(value: str | None) -> tuple[datetime, uuid.UUID] | None:
 async def response_for(
     portrait: Portrait, asset: MediaAsset, storage: StorageService
 ) -> PortraitResponse:
-    if asset.width is None or asset.height is None or asset.detected_content_type is None:
+    if asset.detected_content_type is None:
         raise ApiError(500, "PORTRAIT_METADATA_MISSING", "Portrait metadata is unavailable.")
     signed = await storage.create_download_url(asset.object_key)
     return PortraitResponse(

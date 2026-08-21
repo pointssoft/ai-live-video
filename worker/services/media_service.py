@@ -6,6 +6,49 @@ from worker.errors import WorkerError
 
 
 class MediaService:
+    def normalize_motion(self, source: Path, destination: Path) -> None:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-v",
+                    "error",
+                    "-fflags",
+                    "+genpts",
+                    "-i",
+                    str(source),
+                    "-map",
+                    "0:v:0",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    str(destination),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.SubprocessError as exc:
+            raise WorkerError(
+                "MOTION_INVALID",
+                "VALIDATING_MEDIA",
+                False,
+                "The motion video could not be decoded.",
+            ) from exc
+        if not destination.is_file() or destination.stat().st_size == 0:
+            raise WorkerError(
+                "MOTION_INVALID",
+                "VALIDATING_MEDIA",
+                False,
+                "The motion video could not be decoded.",
+            )
+
     def probe_portrait(self, path: Path) -> None:
         payload = self._probe(path, "PORTRAIT_INVALID")
         streams = payload.get("streams", [])

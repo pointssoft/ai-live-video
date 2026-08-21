@@ -15,8 +15,8 @@ class PortraitAssetResponse(BaseModel):
     content_type: str
     size_bytes: int
     sha256: str
-    width: int
-    height: int
+    width: int | None
+    height: int | None
 
 
 class PortraitResponse(BaseModel):

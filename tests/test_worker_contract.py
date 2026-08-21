@@ -75,8 +75,25 @@ class FakeStorage:
 
 
 class FakeModel:
+    def __init__(self):
+        self.motion = None
+
     def generate(self, portrait, motion, output, profile):
+        self.motion = motion
         output.write_bytes(b"video")
+
+
+class FakeMedia:
+    def probe_portrait(self, path):
+        self.portrait = path
+
+    def normalize_motion(self, source, destination):
+        self.source = source
+        self.normalized = destination
+        destination.write_bytes(b"normalized")
+
+    def probe_motion(self, path, min_duration_ms, max_duration_ms):
+        self.motion = (path, min_duration_ms, max_duration_ms)
 
 
 class WorkerContractTests(unittest.TestCase):
@@ -103,14 +120,17 @@ class WorkerContractTests(unittest.TestCase):
 
     def test_job_calls_model_once_and_returns_manifest(self):
         stages = []
+        model = FakeModel()
+        media = FakeMedia()
         result = JobService(
-            self.config, FakeStorage(), FakeModel()
+            self.config, FakeStorage(), model, media
         ).execute(payload(), stages.append)
         self.assertEqual(
             stages,
             [
                 "VALIDATING_INPUT",
                 "DOWNLOADING",
+                "VALIDATING_MEDIA",
                 "RUNNING_INFERENCE",
                 "UPLOADING_OUTPUT",
                 "VERIFYING_OUTPUT",
@@ -119,6 +139,9 @@ class WorkerContractTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["output"]["size_bytes"], 5)
+        self.assertEqual(model.motion.name, "motion.normalized.mp4")
+        self.assertEqual(media.motion[0], model.motion)
+        self.assertEqual(media.motion[1:], (5000, 15000))
 
     def test_rejects_host_suffix_attack(self):
         data = payload()
