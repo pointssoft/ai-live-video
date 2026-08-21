@@ -23,7 +23,10 @@ export function CreateWizard() {
   const [submitting, setSubmitting] = useState(false);
   const submissionKey = useRef<string | null>(null);
   const camera = useCamera();
-  const recorder = useMediaRecorder(camera.stream);
+  const portraitAspectRatio = portrait
+    ? portrait.original_asset.width / portrait.original_asset.height
+    : null;
+  const recorder = useMediaRecorder(camera.stream, portraitAspectRatio);
   const transfer = useDirectUpload();
   const portraitTransfer = useDirectUpload();
 
@@ -128,7 +131,7 @@ export function CreateWizard() {
       {step === "camera" && (
         <div>
           <h1>Record motion</h1>
-          {!camera.stream ? <><p>Camera access begins only after you click Allow camera. No audio is recorded.</p><button onClick={() => void camera.open()}>Allow camera</button></> : <><div className="camera-layout"><CameraPreview stream={camera.stream} /><aside className="panel"><p>Keep one person fully visible and move at a moderate speed.</p>{camera.devices.length > 1 && <label>Camera<select onChange={(event) => void camera.open(event.target.value)}>{camera.devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}</aside></div>{recorder.countdown !== null && <p className="countdown" aria-live="polite">Recording in {recorder.countdown}</p>}{recorder.isRecording ? <button className="recording" onClick={recorder.stop}>Stop recording</button> : <button onClick={recorder.startCountdown}>Start 3-second countdown</button>}{recorder.countdown !== null && <button className="secondary" onClick={recorder.cancelCountdown}>Cancel countdown</button>}</>}
+          {!camera.stream ? <><p>Camera access begins only after you click Allow camera. No audio is recorded.</p><button onClick={() => void camera.open()}>Allow camera</button></> : <><div className="camera-layout"><CameraPreview stream={camera.stream} aspectRatio={portraitAspectRatio ?? 3 / 4} /><aside className="panel"><p>The preview and recorded video use the selected portrait&apos;s aspect ratio. Keep one person fully visible and move at a moderate speed.</p>{camera.devices.length > 1 && <label>Camera<select onChange={(event) => void camera.open(event.target.value)}>{camera.devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}</aside></div>{recorder.countdown !== null && <p className="countdown" aria-live="polite">Recording in {recorder.countdown}</p>}{recorder.isRecording ? <button className="recording" onClick={recorder.stop}>Stop recording</button> : <button onClick={recorder.startCountdown}>Start 3-second countdown</button>}{recorder.countdown !== null && <button className="secondary" onClick={recorder.cancelCountdown}>Cancel countdown</button>}</>}
           {(camera.error || recorder.error) && <p role="alert" className="error">{camera.error || recorder.error}</p>}
         </div>
       )}

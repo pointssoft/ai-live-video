@@ -74,14 +74,6 @@ class FakeStorage:
         self.verified_size = expected_size
 
 
-class FakeMedia:
-    def probe_portrait(self, path):
-        pass
-
-    def probe_motion(self, path, min_duration_ms, max_duration_ms):
-        pass
-
-
 class FakeModel:
     def generate(self, portrait, motion, output, profile):
         output.write_bytes(b"video")
@@ -112,14 +104,13 @@ class WorkerContractTests(unittest.TestCase):
     def test_job_calls_model_once_and_returns_manifest(self):
         stages = []
         result = JobService(
-            self.config, FakeStorage(), FakeModel(), FakeMedia()
+            self.config, FakeStorage(), FakeModel()
         ).execute(payload(), stages.append)
         self.assertEqual(
             stages,
             [
                 "VALIDATING_INPUT",
                 "DOWNLOADING",
-                "VALIDATING_MEDIA",
                 "RUNNING_INFERENCE",
                 "UPLOADING_OUTPUT",
                 "VERIFYING_OUTPUT",

@@ -1,7 +1,6 @@
 from worker.config import WorkerConfig
 from worker.contracts import WorkerInputV1
 from worker.errors import WorkerError
-from worker.services.media_service import MediaService
 from worker.services.model_service import ModelService
 from worker.services.storage_service import StorageService
 from worker.url_security import validate_storage_url
@@ -10,14 +9,13 @@ from worker.workspace import job_workspace
 
 class JobService:
     def __init__(
-        self, config: WorkerConfig, storage=None, model=None, media=None
+        self, config: WorkerConfig, storage=None, model=None
     ) -> None:
         self.config = config
         self.storage = storage or StorageService()
         self.model = model or ModelService(
             config.model_root, config.artifacts_ready_path
         )
-        self.media = media or MediaService()
 
     def execute(self, raw_input: dict, progress=None) -> dict:
         report = progress or (lambda stage: None)
@@ -59,13 +57,6 @@ class JobService:
                 motion,
                 contract.motion_video.size_bytes,
                 contract.motion_video.sha256,
-            )
-            report("VALIDATING_MEDIA")
-            self.media.probe_portrait(portrait)
-            self.media.probe_motion(
-                motion,
-                contract.motion_video.min_duration_ms,
-                contract.motion_video.max_duration_ms,
             )
             report("RUNNING_INFERENCE")
             self.model.generate(portrait, motion, output, contract.inference)
