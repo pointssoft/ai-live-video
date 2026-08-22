@@ -66,7 +66,7 @@ jobs:
             gpu_type_id="${INPUT_GPU_TYPE_ID:-NVIDIA H100 SXM}"
           fi
           [[ "$tag" =~ ^sha-[0-9a-f]{12}$ ]] || { echo "Image tag must match sha-<12 lowercase hex>"; exit 1; }
-          [[ "$gpu_type_id" =~ ^[A-Za-z0-9._ -]{3,100}$ ]] || { echo "Invalid GPU type ID"; exit 1; }
+          [[ "$gpu_type_id" =~ ^[A-Za-z0-9._[:space:]-]{3,100}$ ]] || { echo "Invalid GPU type ID"; exit 1; }
           {
             echo "image=${DOCKERHUB_USERNAME}/mimicmotion-realtime-worker:${tag}"
             echo "revision=$revision"
