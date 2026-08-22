@@ -77,11 +77,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$RUNPOD_API_KEY" || { echo "RUNPOD_API_KEY is not configured"; exit 1; }
-          test -n "$DOCKERHUB_USERNAME" || { echo "DOCKERHUB_USERNAME is not configured"; exit 1; }
-          test -n "$LIVEKIT_URL" || { echo "LIVEKIT_URL is not configured"; exit 1; }
-          test -n "$LIVEKIT_API_KEY" || { echo "LIVEKIT_API_KEY is not configured"; exit 1; }
-          test -n "$LIVEKIT_API_SECRET" || { echo "LIVEKIT_API_SECRET is not configured"; exit 1; }
+          missing=()
+          [[ -n "$RUNPOD_API_KEY" ]] || missing+=(RUNPOD_API_KEY)
+          [[ -n "$DOCKERHUB_USERNAME" ]] || missing+=(DOCKERHUB_USERNAME)
+          [[ -n "$LIVEKIT_URL" ]] || missing+=(LIVEKIT_URL)
+          [[ -n "$LIVEKIT_API_KEY" ]] || missing+=(LIVEKIT_API_KEY)
+          [[ -n "$LIVEKIT_API_SECRET" ]] || missing+=(LIVEKIT_API_SECRET)
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required production secrets: %s\\n' "${missing[*]}"
+            exit 1
+          fi
 
       - name: Stop previous realtime Pod
         if: env.RUNPOD_REALTIME_POD_ID != ''
@@ -130,14 +135,18 @@ jobs:
             --arg volumeMountPath '/workspace' \
             --argjson env "$POD_ENV" \
             '{cloudType: $cloudType, gpuCount: 1, volumeInGb: 40, containerDiskInGb: 100, minVcpuCount: 20, minMemoryInGb: 125, gpuTypeId: $gpuTypeId, name: $name, imageName: $imageName, dockerArgs: "", ports: $ports, volumeMountPath: $volumeMountPath, env: $env}')"
-          payload="$(jq -cn --arg query 'mutation($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id name imageName desiredStatus machineId } }' --argjson input "$input" '{query: $query, variables: {input: $input}}')"
+          payload="$(jq -cn --arg query 'mutation($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id imageName machineId machine { podHostId } } }' --argjson input "$input" '{query: $query, variables: {input: $input}}')"
           response="$(curl --fail-with-body --silent --show-error \
             --request POST \
             --header 'content-type: application/json' \
             --url "https://api.runpod.io/graphql?api_key=${RUNPOD_API_KEY}" \
             --data "$payload")"
           pod_id="$(echo "$response" | jq -r '.data.podFindAndDeployOnDemand.id // empty')"
-          test -n "$pod_id" || { echo "Runpod Pod creation failed"; echo "$response"; exit 1; }
+          if [[ -z "$pod_id" || "$response" == *'"errors"'* ]]; then
+            echo "Runpod Pod creation failed:"
+            echo "$response"
+            exit 1
+          fi
           {
             echo "pod_id=$pod_id"
             echo "image=$IMAGE"
