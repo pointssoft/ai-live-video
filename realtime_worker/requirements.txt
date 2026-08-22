@@ -1,0 +1,2 @@
+livekit-agents~=1.7.0
+httpx>=0.28,<1

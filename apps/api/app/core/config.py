@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     GENERATION_EXECUTION_TIMEOUT_SECONDS: int = 1800
     MAX_GENERATED_OUTPUT_BYTES: int = 200 * 1024 * 1024
 
+    LIVEKIT_URL: str | None = None
+    LIVEKIT_API_KEY: str | None = None
+    LIVEKIT_API_SECRET: str | None = Field(default=None, min_length=16)
+    LIVEKIT_TOKEN_TTL_SECONDS: int = 900
+
     MAX_PORTRAIT_UPLOAD_BYTES: int = 15 * 1024 * 1024
     MAX_MOTION_UPLOAD_BYTES: int = 100 * 1024 * 1024
     DEFAULT_STORAGE_QUOTA_BYTES: int = 1024 * 1024 * 1024

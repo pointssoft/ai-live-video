@@ -33,7 +33,7 @@ jobs:
     environment:
       name: production
     env:
-      IMAGE_NAME: malaknoyn/mimicmotion-worker
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/mimicmotion-worker
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
 

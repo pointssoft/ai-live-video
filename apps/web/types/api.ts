@@ -30,6 +30,14 @@ export interface Portrait {
 }
 export interface PortraitPage { items: Portrait[]; next_cursor: string | null }
 
+export interface RealtimeSession {
+  session_id: string;
+  room_name: string;
+  server_url: string;
+  participant_token: string;
+  expires_in_seconds: number;
+}
+
 export type GenerationStatus = "CREATED" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT" | "CANCEL_REQUESTED" | "CANCELED";
 export type GenerationProgressStage = string | null;
 export interface GenerationExecution {
