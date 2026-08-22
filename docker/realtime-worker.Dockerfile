@@ -16,8 +16,12 @@ RUN git clone https://github.com/KlingAIResearch/LivePortrait.git /opt/LivePortr
 
 RUN python3 -m pip install --no-cache-dir \
     torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128 \
+    && sed -i 's/opencv-python==/opencv-python-headless==/' /opt/LivePortrait/requirements_base.txt \
+    && sed -i '/onnxruntime-gpu/d' /opt/LivePortrait/requirements.txt \
     && python3 -m pip install --no-cache-dir \
-    -r /opt/LivePortrait/requirements.txt huggingface-hub
+    -r /opt/LivePortrait/requirements.txt huggingface-hub \
+    && python3 -m pip install --no-cache-dir \
+    onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
 
 RUN --mount=type=secret,id=HF_TOKEN \
     HF_TOKEN="$(cat /run/secrets/HF_TOKEN)" huggingface-cli download KlingTeam/LivePortrait \

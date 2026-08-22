@@ -2,8 +2,9 @@ import json
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, BackgroundTasks, Request, status
 from livekit import api
+from livekit.protocol import agent_dispatch
 
 from app.api.dependencies import AppSettings, CsrfProtected, CurrentUser, DbSession, Storage
 from app.core.errors import ApiError
@@ -41,9 +42,29 @@ def create_participant_token(
     )
 
 
+async def dispatch_agent(
+    server_url: str,
+    api_key: str,
+    api_secret: str,
+    room_name: str,
+    agent_name: str,
+) -> None:
+    livekit_api = api.LiveKitAPI(url=server_url, api_key=api_key, api_secret=api_secret)
+    try:
+        await livekit_api.agent_dispatch.create_dispatch(
+            agent_dispatch.CreateAgentDispatchRequest(
+                agent_name=agent_name,
+                room=room_name,
+            )
+        )
+    finally:
+        await livekit_api.aclose()
+
+
 @router.post("", response_model=RealtimeSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_realtime_session(
     payload: RealtimeSessionCreate,
+    background_tasks: BackgroundTasks,
     request: Request,
     user: CurrentUser,
     db: DbSession,
@@ -74,6 +95,14 @@ async def create_realtime_session(
         identity=identity,
         metadata=metadata,
         ttl_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
+    )
+    background_tasks.add_task(
+        dispatch_agent,
+        server_url=settings.LIVEKIT_URL,
+        api_key=settings.LIVEKIT_API_KEY,
+        api_secret=settings.LIVEKIT_API_SECRET,
+        room_name=room_name,
+        agent_name="liveportrait",
     )
     return RealtimeSessionResponse(
         session_id=session_id,

@@ -59,11 +59,11 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             tag="sha-${WORKFLOW_HEAD_SHA:0:12}"
             revision="$WORKFLOW_HEAD_SHA"
-            gpu_type_id="NVIDIA H100 SXM"
+            gpu_type_id="NVIDIA L40S"
           else
             tag="$INPUT_IMAGE_TAG"
             revision="manual"
-            gpu_type_id="${INPUT_GPU_TYPE_ID:-NVIDIA H100 SXM}"
+            gpu_type_id="${INPUT_GPU_TYPE_ID:-NVIDIA L40S}"
           fi
           [[ "$tag" =~ ^sha-[0-9a-f]{12}$ ]] || { echo "Image tag must match sha-<12 lowercase hex>"; exit 1; }
           [[ "$gpu_type_id" =~ ^[A-Za-z0-9._[:space:]-]{3,100}$ ]] || { echo "Invalid GPU type ID"; exit 1; }
