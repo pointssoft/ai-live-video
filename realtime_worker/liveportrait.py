@@ -84,7 +84,7 @@ class RealtimeLivePortrait:
 
         driving_crop = self.cropper.crop_source_image(driving_rgb, self.cropper.crop_cfg)
         if driving_crop is None:
-            return None
+            return source.image
         driving_input = self.wrapper.prepare_source(driving_crop["img_crop_256x256"])
         driving_info = self.wrapper.get_kp_info(driving_input)
         driving_rotation = get_rotation_matrix(

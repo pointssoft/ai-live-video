@@ -79,6 +79,7 @@ def main() -> None:
             api_secret=settings.livekit_api_secret,
             num_idle_processes=1,
             load_threshold=0.9,
+            job_memory_warn_mb=4000,
         )
     )
 
