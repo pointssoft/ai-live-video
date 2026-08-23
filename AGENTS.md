@@ -5,7 +5,9 @@
 - This repository has four independently tooled surfaces: root offline/Cog inference, `apps/web` (Next.js), `apps/api` (FastAPI), and `worker/` (Runpod). Do not mix the API uv environment with the root Conda, Cog, or CUDA worker environments; Cog also declares dependencies independently in `cog.yaml`.
 - Run root inference and contract tests from the repository root because configs, sample media, checkpoints, and DWPose ONNX paths are relative (`configs/test.yaml:1-9`, `mimicmotion/dwpose/dwpose_detector.py:69-72`).
 - Root `README.md` describes the original inference path, not the web/API/worker product. Prefer code, manifests, migrations, Dockerfiles, workflows, and tests over `plan/` prose.
-- Current GitHub Actions cover only worker image build/deployment; web and API lint, tests, typecheck, and builds must be run locally.
+- GitHub Actions handle deployments:
+  - `.github/workflows/build-worker.yml` (and `deploy-worker.yml`) for the batch Runpod worker.
+  - `.github/workflows/build-realtime-worker.yml` (and `deploy-realtime-worker.yml`) for the persistent LiveKit WebRTC Runpod Pod.
 
 ## Root inference
 
@@ -40,6 +42,13 @@
 - `docker/worker.Dockerfile` pins CUDA 12.1 and Torch 2.3.1. This image failed on Blackwell with `no kernel image is available`; use a validated Ada/Hopper pool or upgrade and rerun GPU qualification.
 - `.github/workflows/build-worker.yml` builds `docker/worker.Dockerfile` for `linux/amd64` and publishes release, `phase1-smoke`, and immutable SHA tags. Do not build the CUDA image during routine API verification; note that CI does not build `docker/worker.smoke.Dockerfile`.
 - Successful main builds trigger `.github/workflows/deploy-worker.yml`; its `production` environment is the approval gate. Deployment accepts only `sha-<12 lowercase hex>` and patches only the endpoint image. Deploy hard-codes `malaknoyn/mimicmotion-worker`, while build derives the namespace from `DOCKERHUB_USERNAME`; change both together.
+
+## Realtime worker (LiveKit)
+
+- `realtime_worker/main.py` is the entrypoint for the persistent LiveKit worker running on Runpod. It handles WebRTC streaming for realtime face rendering using LivePortrait.
+- Runpod deployment relies on manual/trigger updates to `.github/workflows/deploy-realtime-worker.yml`, utilizing GraphQL to interact with Runpod pods. H100 SXM GPUs are required for the `realtime-worker` image due to ONNX runtime CUDA constraints.
+- `apps/api/app/api/v1/realtime_sessions.py` handles LiveKit token generation and dispatching to specific worker rooms using explicit `agent_dispatch`. Next.js web connects via `apps/web/components/realtime/RealtimeStudio.tsx`.
+- The real-time worker logs `More than one face detected` when `LivePortrait` detects no face. This doesn't crash the session; the worker gracefully falls back to passing through the source image frame (`source.image`) directly.
 
 ## Inference invariants
 
