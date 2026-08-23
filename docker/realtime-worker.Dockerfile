@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
     PYTHONPATH=/opt/app:/opt/LivePortrait
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip git ffmpeg libgl1 libglib2.0-0 \
+    python3 python3-pip git ffmpeg libgl1 libglib2.0-0 gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/KlingAIResearch/LivePortrait.git /opt/LivePortrait \

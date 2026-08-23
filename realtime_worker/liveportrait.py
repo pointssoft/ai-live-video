@@ -28,7 +28,7 @@ class RealtimeLivePortrait:
     def __init__(self) -> None:
         inference = InferenceConfig(
             flag_use_half_precision=True,
-            flag_do_torch_compile=True,
+            flag_do_torch_compile=False,
             flag_normalize_lip=False,
             flag_eye_retargeting=False,
             flag_lip_retargeting=False,
