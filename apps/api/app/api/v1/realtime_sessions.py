@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from datetime import timedelta
@@ -25,7 +26,7 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
     payload = {
         "name": pod_name,
         "imageName": image_name,
-        "gpuTypeIds": ["NVIDIA H100 SXM"],
+        "gpuTypeIds": ["NVIDIA L40S"],
         "gpuCount": 1,
         "containerDiskInGb": 100,
         "volumeInGb": 40,
@@ -62,13 +63,30 @@ async def terminate_runpod_pod(settings: AppSettings, pod_id: str) -> None:
         return
     
     async with httpx.AsyncClient() as client:
-        await client.delete(
+        # First, stop the pod
+        stop_response = await client.post(
+            f"https://rest.runpod.io/v1/pods/{pod_id}/stop",
+            headers={
+                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
+            },
+            timeout=30.0
+        )
+        if stop_response.status_code >= 400:
+            print(f"Warning: Failed to stop Runpod {pod_id}: {stop_response.text}")
+        
+        # Wait a bit before terminating to allow Runpod to process the stop command
+        await asyncio.sleep(5)
+        
+        # Then, terminate the pod explicitly
+        terminate_response = await client.delete(
             f"https://rest.runpod.io/v1/pods/{pod_id}",
             headers={
                 "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
             },
             timeout=30.0
         )
+        if terminate_response.status_code >= 400:
+            print(f"Warning: Failed to terminate Runpod {pod_id}: {terminate_response.text}")
 
 
 def create_participant_token(
