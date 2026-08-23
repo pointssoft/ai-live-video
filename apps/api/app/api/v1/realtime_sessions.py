@@ -31,6 +31,7 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
         "volumeInGb": 40,
         "volumeMountPath": "/workspace",
         "ports": ["8081/http"],
+        "cloudType": "SECURE",
         "env": {
             "LIVEKIT_URL": settings.LIVEKIT_URL,
             "LIVEKIT_API_KEY": settings.LIVEKIT_API_KEY,
@@ -41,7 +42,7 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
     
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "https://api.runpod.io/v2/pods",
+            "https://rest.runpod.io/v1/pods",
             headers={
                 "Authorization": f"Bearer {settings.RUNPOD_API_KEY}",
                 "Content-Type": "application/json"
@@ -62,7 +63,7 @@ async def terminate_runpod_pod(settings: AppSettings, pod_id: str) -> None:
     
     async with httpx.AsyncClient() as client:
         await client.delete(
-            f"https://api.runpod.io/v2/pods/{pod_id}",
+            f"https://rest.runpod.io/v1/pods/{pod_id}",
             headers={
                 "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
             },
