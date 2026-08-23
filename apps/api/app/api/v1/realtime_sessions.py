@@ -20,23 +20,23 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
         raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
     # You would pass specific configuration that matches your deploy-realtime-worker logic
     pod_name = f"mimicmotion-realtime-{session_id}"
-    image_name = "malaknoyn/mimicmotion-realtime-worker:realtime-phase1"
+    image_name = "malaknoyn/mimicmotion-realtime-worker:sha-8d5d5b57a201"
     
     payload = {
         "name": pod_name,
-        "imageName": image_name,
+        "image": image_name,
         "gpuTypeIds": ["NVIDIA H100 SXM"],
         "gpuCount": 1,
         "volumeInGb": 40,
         "containerDiskInGb": 100,
-        "ports": "8081/http",
+        "ports": ["8081/http"],
         "volumeMountPath": "/workspace",
-        "env": [
-            {"key": "LIVEKIT_URL", "value": settings.LIVEKIT_URL},
-            {"key": "LIVEKIT_API_KEY", "value": settings.LIVEKIT_API_KEY},
-            {"key": "LIVEKIT_API_SECRET", "value": settings.LIVEKIT_API_SECRET},
-            {"key": "LIVEKIT_AGENT_NAME", "value": "liveportrait"},
-        ]
+        "env": {
+            "LIVEKIT_URL": settings.LIVEKIT_URL,
+            "LIVEKIT_API_KEY": settings.LIVEKIT_API_KEY,
+            "LIVEKIT_API_SECRET": settings.LIVEKIT_API_SECRET,
+            "LIVEKIT_AGENT_NAME": "liveportrait",
+        }
     }
     
     async with httpx.AsyncClient() as client:
