@@ -95,17 +95,18 @@ jobs:
           POD_ID: ${{ env.RUNPOD_REALTIME_POD_ID }}
         run: |
           set -euo pipefail
-          payload='{"query":"mutation($input: PodStopInput!) { podStop(input: $input) { id desiredStatus } }","variables":{"input":{"podId":"'"$POD_ID"'"}}}'
           response="$(curl --fail-with-body --silent --show-error \
-            --request POST \
-            --header 'content-type: application/json' \
-            --url "https://api.runpod.io/graphql?api_key=${RUNPOD_API_KEY}" \
-            --data "$payload")"
-          echo "$response" | jq -e '.data.podStop.id == $ENV.POD_ID' >/dev/null || {
-            echo "Runpod did not stop the expected Pod"
+            --request DELETE \
+            --url "https://api.runpod.io/v2/pods/$POD_ID" \
+            --header "Authorization: Bearer ${RUNPOD_API_KEY}")"
+          if [[ -z "$response" ]]; then
+            # Empty response typically means successful deletion for DELETE requests
+            :
+          elif [[ "$response" != *"\"id\":\"$POD_ID\""* ]]; then
+            echo "Runpod did not terminate the expected Pod"
             echo "$response"
             exit 1
-          }
+          fi
 
       - name: Create H100 realtime Pod
         id: pod
@@ -116,33 +117,39 @@ jobs:
         run: |
           set -euo pipefail
           export POD_NAME="mimicmotion-realtime-${GITHUB_SHA:0:12}"
-          export POD_ENV="$(jq -cn \
+          
+          # Since v2 REST API simplifies deployment, we pass environment directly
+          input="$(jq -cn \
+            --arg name "$POD_NAME" \
+            --arg imageName "$IMAGE" \
+            --arg gpuTypeId "$GPU_TYPE_ID" \
             --arg url "$LIVEKIT_URL" \
             --arg key "$LIVEKIT_API_KEY" \
             --arg secret "$LIVEKIT_API_SECRET" \
-            '[
-              {key: "LIVEKIT_URL", value: $url},
-              {key: "LIVEKIT_API_KEY", value: $key},
-              {key: "LIVEKIT_API_SECRET", value: $secret},
-              {key: "LIVEKIT_AGENT_NAME", value: "liveportrait"}
-            ]')"
-          input="$(jq -cn \
-            --arg cloudType 'ALL' \
-            --arg gpuTypeId "$GPU_TYPE_ID" \
-            --arg name "$POD_NAME" \
-            --arg imageName "$IMAGE" \
-            --arg ports '8081/http' \
-            --arg volumeMountPath '/workspace' \
-            --argjson env "$POD_ENV" \
-            '{cloudType: $cloudType, gpuCount: 1, volumeInGb: 40, containerDiskInGb: 100, minVcpuCount: 20, minMemoryInGb: 125, gpuTypeId: $gpuTypeId, name: $name, imageName: $imageName, dockerArgs: "", ports: $ports, volumeMountPath: $volumeMountPath, env: $env}')"
-          payload="$(jq -cn --arg query 'mutation($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id imageName machineId machine { podHostId } } }' --argjson input "$input" '{query: $query, variables: {input: $input}}')"
+            '{
+              name: $name,
+              imageName: $imageName,
+              gpuTypeIds: [$gpuTypeId],
+              gpuCount: 1,
+              volumeInGb: 40,
+              containerDiskInGb: 100,
+              ports: "8081/http",
+              volumeMountPath: "/workspace",
+              env: [
+                {key: "LIVEKIT_URL", value: $url},
+                {key: "LIVEKIT_API_KEY", value: $key},
+                {key: "LIVEKIT_API_SECRET", value: $secret},
+                {key: "LIVEKIT_AGENT_NAME", value: "liveportrait"}
+              ]
+            }')"
           response="$(curl --fail-with-body --silent --show-error \
             --request POST \
             --header 'content-type: application/json' \
-            --url "https://api.runpod.io/graphql?api_key=${RUNPOD_API_KEY}" \
-            --data "$payload")"
-          pod_id="$(echo "$response" | jq -r '.data.podFindAndDeployOnDemand.id // empty')"
-          if [[ -z "$pod_id" || "$response" == *'"errors"'* ]]; then
+            --header "Authorization: Bearer ${RUNPOD_API_KEY}" \
+            --url "https://api.runpod.io/v2/pods" \
+            --data "$input")"
+          pod_id="$(echo "$response" | jq -r '.id // empty')"
+          if [[ -z "$pod_id" || "$response" == *"\"error\""* ]]; then
             echo "Runpod Pod creation failed:"
             echo "$response"
             exit 1
