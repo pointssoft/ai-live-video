@@ -101,13 +101,9 @@ class RealtimeLivePortrait:
 
         rotation = (driving_rotation @ initial_rotation.permute(0, 2, 1)) @ source.source_rotation
         expression = source.source_info["exp"] + (driving_info["exp"] - initial["exp"])
-        
-        # Lock scale and translation to the original portrait to prevent the head from
-        # floating away from the body / looking pasted when the driver moves around.
-        scale = source.source_info["scale"]
-        translation = source.source_info["t"].clone()
+        scale = source.source_info["scale"] * (driving_info["scale"] / initial["scale"])
+        translation = source.source_info["t"] + (driving_info["t"] - initial["t"])
         translation[..., 2].fill_(0)
-        
         keypoints = scale * (source.source_info["kp"] @ rotation + expression) + translation
         keypoints = self.wrapper.stitching(source.source_keypoints, keypoints)
 

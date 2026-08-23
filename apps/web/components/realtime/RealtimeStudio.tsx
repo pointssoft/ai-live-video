@@ -23,6 +23,7 @@ export function RealtimeStudio() {
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
+  const sessionInfoRef = useRef<{ sessionId: string, podId: string } | null>(null);
 
   const isLive = status === "Live";
 
@@ -42,6 +43,17 @@ export function RealtimeStudio() {
     roomRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (outputVideoRef.current) outputVideoRef.current.srcObject = null;
+    
+    if (sessionInfoRef.current) {
+      import("@/lib/realtime-sessions").then(({ terminateRealtimeSession }) => {
+        if (sessionInfoRef.current) {
+           terminateRealtimeSession(sessionInfoRef.current.sessionId, sessionInfoRef.current.podId)
+             .catch(console.error);
+           sessionInfoRef.current = null;
+        }
+      });
+    }
+
     setConnecting(false);
     setStatus("Session ended.");
   };
@@ -56,6 +68,8 @@ export function RealtimeStudio() {
 
     try {
       const session = await createRealtimeSession(portraitId);
+      sessionInfoRef.current = { sessionId: session.session_id, podId: session.pod_id };
+      
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
 

@@ -20,8 +20,8 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
     if not settings.RUNPOD_API_KEY:
         raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
     # You would pass specific configuration that matches your deploy-realtime-worker logic
-    pod_name = f"mimicmotion-realtime-{session_id}"
-    image_name = "malaknoyn/mimicmotion-realtime-worker:sha-0e0c7fd85981"
+    pod_name = f"mimicmotion-realtime-{session_id}" 
+    image_name = "malaknoyn/mimicmotion-realtime-worker:sha-cd3a8d5dccda"
     
     payload = {
         "name": pod_name,
@@ -52,7 +52,7 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
             timeout=30.0
         )
         if response.status_code >= 400:
-            raise ApiError(500, "RUNPOD_POD_CREATION_FAILED", f"Failed to create pod: {response.text}")
+            raise ApiError(500, "RUNPOD_POD_CREATION_FAILED", "Failed to create pod")
         
         data = response.json()
         return data["id"]
