@@ -13,3 +13,4 @@ class RealtimeSessionResponse(BaseModel):
     server_url: str
     participant_token: str
     expires_in_seconds: int
+    pod_id: str | None = None

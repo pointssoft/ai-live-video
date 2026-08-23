@@ -2,6 +2,7 @@ import json
 import uuid
 from datetime import timedelta
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Request, status
 from livekit import api
 from livekit.protocol import agent_dispatch
@@ -12,6 +13,61 @@ from app.schemas.realtime_sessions import RealtimeSessionCreate, RealtimeSession
 from app.services import portrait_service
 
 router = APIRouter(prefix="/realtime-sessions", tags=["realtime-sessions"])
+
+
+async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str:
+    if not settings.RUNPOD_API_KEY:
+        raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
+    # You would pass specific configuration that matches your deploy-realtime-worker logic
+    pod_name = f"mimicmotion-realtime-{session_id}"
+    image_name = "malaknoyn/mimicmotion-realtime-worker:realtime-phase1"
+    
+    payload = {
+        "name": pod_name,
+        "imageName": image_name,
+        "gpuTypeIds": ["NVIDIA H100 SXM"],
+        "gpuCount": 1,
+        "volumeInGb": 40,
+        "containerDiskInGb": 100,
+        "ports": "8081/http",
+        "volumeMountPath": "/workspace",
+        "env": [
+            {"key": "LIVEKIT_URL", "value": settings.LIVEKIT_URL},
+            {"key": "LIVEKIT_API_KEY", "value": settings.LIVEKIT_API_KEY},
+            {"key": "LIVEKIT_API_SECRET", "value": settings.LIVEKIT_API_SECRET},
+            {"key": "LIVEKIT_AGENT_NAME", "value": "liveportrait"},
+        ]
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.runpod.io/v2/pods",
+            headers={
+                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=30.0
+        )
+        if response.status_code >= 400:
+            raise ApiError(500, "RUNPOD_POD_CREATION_FAILED", f"Failed to create pod: {response.text}")
+        
+        data = response.json()
+        return data["id"]
+
+
+async def terminate_runpod_pod(settings: AppSettings, pod_id: str) -> None:
+    if not settings.RUNPOD_API_KEY:
+        return
+    
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"https://api.runpod.io/v2/pods/{pod_id}",
+            headers={
+                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
+            },
+            timeout=30.0
+        )
 
 
 def create_participant_token(
@@ -77,6 +133,10 @@ async def create_realtime_session(
 
     portrait = await portrait_service.get_portrait(db, storage, user, payload.portrait_id)
     session_id = uuid.uuid4()
+    
+    # Create an on-demand Runpod WebRTC Pod
+    pod_id = await create_runpod_pod(settings, session_id)
+    
     room_name = f"realtime-{session_id}"
     identity = f"user-{user.id}"
     metadata = json.dumps(
@@ -110,4 +170,18 @@ async def create_realtime_session(
         server_url=settings.LIVEKIT_URL,
         participant_token=token,
         expires_in_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
+        pod_id=pod_id,
     )
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def terminate_realtime_session(
+    session_id: uuid.UUID,
+    pod_id: str,
+    background_tasks: BackgroundTasks,
+    user: CurrentUser,
+    settings: AppSettings,
+    _csrf: CsrfProtected,
+) -> None:
+    # Schedule the termination task to run in the background
+    background_tasks.add_task(terminate_runpod_pod, settings, pod_id)
+
