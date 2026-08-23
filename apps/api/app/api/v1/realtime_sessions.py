@@ -24,13 +24,13 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
     
     payload = {
         "name": pod_name,
-        "image": image_name,
+        "imageName": image_name,
         "gpuTypeIds": ["NVIDIA H100 SXM"],
         "gpuCount": 1,
-        "volumeInGb": 40,
         "containerDiskInGb": 100,
-        "ports": ["8081/http"],
+        "volumeInGb": 40,
         "volumeMountPath": "/workspace",
+        "ports": ["8081/http"],
         "env": {
             "LIVEKIT_URL": settings.LIVEKIT_URL,
             "LIVEKIT_API_KEY": settings.LIVEKIT_API_KEY,
