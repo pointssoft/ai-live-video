@@ -29,9 +29,9 @@ class RealtimeLivePortrait:
         inference = InferenceConfig(
             flag_use_half_precision=True,
             flag_do_torch_compile=True,
-            flag_normalize_lip=False,
-            flag_eye_retargeting=False,
-            flag_lip_retargeting=False,
+            flag_normalize_lip=True,
+            flag_eye_retargeting=True,
+            flag_lip_retargeting=True,
             flag_stitching=True,
             flag_relative_motion=True,
             flag_pasteback=True,

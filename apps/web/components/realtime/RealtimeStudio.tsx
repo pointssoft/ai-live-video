@@ -24,6 +24,8 @@ export function RealtimeStudio() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
 
+  const isLive = status === "Live";
+
   useEffect(() => {
     listPortraits()
       .then((page) => {
@@ -81,6 +83,34 @@ export function RealtimeStudio() {
       setConnecting(false);
     }
   };
+
+  if (isLive) {
+    return (
+      <div className="fullscreen-live-layout">
+        <div className="live-output-container">
+          <video ref={outputVideoRef} autoPlay playsInline className="main-live-video" />
+        </div>
+        <div className="live-sidebar">
+          <div className="live-sidebar-header">
+            <h3>Live Settings</h3>
+          </div>
+          <div className="live-control-group">
+            <label htmlFor="portrait-live">Portrait</label>
+            <select id="portrait-live" value={portraitId} onChange={(event) => setPortraitId(event.target.value)} disabled={Boolean(roomRef.current)}>
+              {portraits.map((portrait) => <option key={portrait.id} value={portrait.id}>{portrait.id.slice(0, 8)}</option>)}
+            </select>
+          </div>
+          <div className="live-control-group">
+            <button type="button" className="secondary stop-button" onClick={() => void stop()} disabled={!roomRef.current}>Stop Session</button>
+          </div>
+          <div className="camera-preview-container">
+            <p className="preview-label">Camera</p>
+            <video ref={localVideoRef} autoPlay muted playsInline className="preview-video" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <section className="realtime-page">
