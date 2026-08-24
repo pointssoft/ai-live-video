@@ -3,6 +3,7 @@ import { ApiClientError } from "./errors";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 let csrfToken: string | null = null;
+let csrfRefresh: Promise<string> | null = null;
 
 function apiUrl(path: string): string {
   if (!API_BASE_URL) throw new Error("NEXT_PUBLIC_API_BASE_URL is not configured");
@@ -10,14 +11,21 @@ function apiUrl(path: string): string {
 }
 
 export async function refreshCsrf(): Promise<string> {
-  const response = await fetch(apiUrl("/api/v1/auth/csrf"), {
-    credentials: "include",
-    cache: "no-store",
-  });
-  if (!response.ok) await throwApiError(response);
-  const body = (await response.json()) as { csrf_token: string };
-  csrfToken = body.csrf_token;
-  return csrfToken;
+  if (!csrfRefresh) {
+    csrfRefresh = (async () => {
+      const response = await fetch(apiUrl("/api/v1/auth/csrf"), {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) await throwApiError(response);
+      const body = (await response.json()) as { csrf_token: string };
+      csrfToken = body.csrf_token;
+      return csrfToken;
+    })().finally(() => {
+      csrfRefresh = null;
+    });
+  }
+  return csrfRefresh;
 }
 
 async function throwApiError(response: Response): Promise<never> {
@@ -54,13 +62,27 @@ export async function apiRequest<T>(
     headers.set("Accept", "application/json");
     if (init.body) headers.set("Content-Type", "application/json");
     if (unsafe && csrfToken) headers.set("X-CSRF-Token", csrfToken);
-    const response = await fetch(apiUrl(path), {
+    let response = await fetch(apiUrl(path), {
       ...init,
       headers,
       credentials: "include",
       signal: init.signal ?? controller.signal,
       cache: "no-store",
     });
+    if (unsafe && response.status === 403) {
+      const body = (await response.clone().json().catch(() => null)) as ApiErrorBody | null;
+      if (body?.error?.code === "CSRF_INVALID") {
+        const freshToken = await refreshCsrf();
+        headers.set("X-CSRF-Token", freshToken);
+        response = await fetch(apiUrl(path), {
+          ...init,
+          headers,
+          credentials: "include",
+          signal: init.signal ?? controller.signal,
+          cache: "no-store",
+        });
+      }
+    }
     if (!response.ok) await throwApiError(response);
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
