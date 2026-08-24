@@ -195,12 +195,13 @@ async def create_realtime_session(
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def terminate_realtime_session(
     session_id: uuid.UUID,
-    pod_id: str,
     background_tasks: BackgroundTasks,
     user: CurrentUser,
     settings: AppSettings,
     _csrf: CsrfProtected,
+    pod_id: str | None = None,
 ) -> None:
-    # Schedule the termination task to run in the background
-    background_tasks.add_task(terminate_runpod_pod, settings, pod_id)
+    # Schedule the termination task to run in the background if pod_id is provided
+    if pod_id:
+        background_tasks.add_task(terminate_runpod_pod, settings, pod_id)
 
