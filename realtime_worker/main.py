@@ -38,6 +38,20 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     options.source = rtc.TrackSource.SOURCE_CAMERA
     await ctx.room.local_participant.publish_track(output_track, options)
 
+    # Handle data messages for portrait changes
+    @ctx.room.on("data_received")
+    def on_data_received(data: rtc.DataPacket):
+        try:
+            message = json.loads(data.data.decode('utf-8'))
+            if message.get("type") == "change_portrait":
+                new_portrait_url = message.get("portrait_url")
+                if new_portrait_url:
+                    logger.info(f"Changing portrait to: {new_portrait_url}")
+                    # Schedule portrait change in background
+                    ctx.create_task(_change_portrait(renderer, new_portrait_url, source))
+        except Exception as e:
+            logger.error(f"Error processing data message: {e}")
+
     stream = rtc.VideoStream.from_participant(
         participant=participant,
         track_source=rtc.TrackSource.SOURCE_CAMERA,
@@ -65,6 +79,21 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     finally:
         await stream.aclose()
         logger.info("Realtime session ended", extra={"participant": participant.identity})
+
+
+async def _change_portrait(renderer: RealtimeLivePortrait, portrait_url: str, source: rtc.VideoSource) -> None:
+    """Load a new portrait and update the video source dimensions if needed."""
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+            response = await client.get(portrait_url)
+            response.raise_for_status()
+
+        width, height = renderer.set_source(decode_image(response.content))
+        # Note: VideoSource dimensions are set at creation and can't be changed
+        # The renderer will handle different sized portraits internally
+        logger.info(f"Portrait changed successfully to dimensions: {width}x{height}")
+    except Exception as e:
+        logger.error(f"Failed to change portrait: {e}")
 
 
 def main() -> None:

@@ -99,11 +99,27 @@ class RealtimeLivePortrait:
         if initial_rotation is None:
             return None
 
+        # Apply relative rotation
         rotation = (driving_rotation @ initial_rotation.permute(0, 2, 1)) @ source.source_rotation
+
+        # Apply relative expression changes
         expression = source.source_info["exp"] + (driving_info["exp"] - initial["exp"])
-        scale = source.source_info["scale"] * (driving_info["scale"] / initial["scale"])
-        translation = source.source_info["t"] + (driving_info["t"] - initial["t"])
+
+        # Keep scale more stable - reduce scale changes to prevent neck stretching
+        scale_ratio = driving_info["scale"] / initial["scale"]
+        # Dampen scale changes significantly (only 30% of change applied)
+        scale_ratio = 1.0 + (scale_ratio - 1.0) * 0.3
+        scale = source.source_info["scale"] * scale_ratio
+
+        # Apply relative translation with dampening
+        translation_delta = driving_info["t"] - initial["t"]
+        # Reduce ALL translation to minimize neck elongation and upward gaze
+        # X-axis (horizontal): 50%, Y-axis (vertical): 20%, Z-axis: 0%
+        translation_delta[..., 0] *= 0.5  # Horizontal movement
+        translation_delta[..., 1] *= 0.2  # Vertical movement (prevents upward look and neck stretch)
         translation[..., 2].fill_(0)
+        translation = source.source_info["t"] + translation_delta
+
         keypoints = scale * (source.source_info["kp"] @ rotation + expression) + translation
         keypoints = self.wrapper.stitching(source.source_keypoints, keypoints)
 
