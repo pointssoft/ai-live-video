@@ -195,13 +195,16 @@ async def create_realtime_session(
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def terminate_realtime_session(
     session_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     user: CurrentUser,
     settings: AppSettings,
     _csrf: CsrfProtected,
     pod_id: str | None = None,
 ) -> None:
-    # Schedule the termination task to run in the background if pod_id is provided
+    # Terminate the pod synchronously to ensure it completes even if Railway restarts
     if pod_id:
-        background_tasks.add_task(terminate_runpod_pod, settings, pod_id)
+        try:
+            await terminate_runpod_pod(settings, pod_id)
+        except Exception as e:
+            # Log but don't fail the request - user has already disconnected
+            print(f"Error terminating pod {pod_id}: {e}")
 
