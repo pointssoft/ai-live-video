@@ -36,6 +36,7 @@ export interface RealtimeSession {
   server_url: string;
   participant_token: string;
   expires_in_seconds: number;
+  pod_id?: string | null;
 }
 
 export type GenerationStatus = "CREATED" | "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "TIMED_OUT" | "CANCEL_REQUESTED" | "CANCELED";
