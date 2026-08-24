@@ -21,11 +21,22 @@ export function RealtimeStudio() {
   const [connecting, setConnecting] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
+  const outputTrackRef = useRef<RemoteTrack | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
   const sessionInfoRef = useRef<{ sessionId: string, podId: string } | null>(null);
 
   const isLive = status === "Live";
+
+  useEffect(() => {
+    const cameraTrack = cameraTrackRef.current;
+    const localVideo = localVideoRef.current;
+    if (cameraTrack && localVideo) cameraTrack.attach(localVideo);
+
+    const outputTrack = outputTrackRef.current;
+    const outputVideo = outputVideoRef.current;
+    if (outputTrack && outputVideo) outputTrack.attach(outputVideo);
+  }, [isLive]);
 
   useEffect(() => {
     listPortraits()
@@ -39,6 +50,7 @@ export function RealtimeStudio() {
   const stop = async () => {
     cameraTrackRef.current?.stop();
     cameraTrackRef.current = null;
+    outputTrackRef.current = null;
     await roomRef.current?.disconnect();
     roomRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -75,6 +87,7 @@ export function RealtimeStudio() {
 
       room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
         if (track.kind === Track.Kind.Video && outputVideoRef.current) {
+          outputTrackRef.current = track;
           track.attach(outputVideoRef.current);
           setStatus("Live");
         }

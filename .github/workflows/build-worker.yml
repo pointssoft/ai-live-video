@@ -10,17 +10,6 @@ on:
         required: true
         default: phase1
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - docker/worker.Dockerfile
-      - worker/**
-      - mimicmotion/**
-      - inference.py
-      - constants.py
-      - .github/workflows/build-worker.yml
-
 concurrency:
   group: worker-image-${{ github.ref }}
   cancel-in-progress: true

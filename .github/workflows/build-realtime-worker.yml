@@ -8,14 +8,6 @@ on:
         required: true
         default: realtime-phase1
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - docker/realtime-worker.Dockerfile
-      - realtime_worker/**
-      - .github/workflows/build-realtime-worker.yml
-
 concurrency:
   group: realtime-worker-image-${{ github.ref }}
   cancel-in-progress: true
