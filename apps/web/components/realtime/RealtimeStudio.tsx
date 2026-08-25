@@ -24,7 +24,7 @@ interface StoredSession {
 }
 
 const SESSION_STORAGE_KEY = "mimicmotion_realtime_session";
-const WORKER_WAIT_TIMEOUT_MS = 150_000;
+const WORKER_WAIT_TIMEOUT_MS = 300_000;
 
 function getStoredSession(): StoredSession | null {
   try {
