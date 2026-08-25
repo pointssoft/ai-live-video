@@ -34,12 +34,11 @@ async def create_runpod_pod(
     if not settings.RUNPOD_API_KEY:
         raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
     # You would pass specific configuration that matches your deploy-realtime-worker logic
-    pod_name = f"mimicmotion-realtime-{session_id}" 
-    image_name = "malaknoyn/mimicmotion-realtime-worker:sha-a87313a13ef3"
-    
+    pod_name = f"mimicmotion-realtime-{session_id}"
+
     payload = {
         "name": pod_name,
-        "imageName": image_name,
+        "imageName": settings.RUNPOD_REALTIME_IMAGE,
         "gpuTypeIds": ["NVIDIA L40S"],
         "gpuCount": 1,
         "containerDiskInGb": 100,
@@ -52,22 +51,22 @@ async def create_runpod_pod(
             "LIVEKIT_API_KEY": settings.LIVEKIT_API_KEY,
             "LIVEKIT_API_SECRET": settings.LIVEKIT_API_SECRET,
             "LIVEKIT_AGENT_NAME": agent_name,
-        }
+        },
     }
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://rest.runpod.io/v1/pods",
             headers={
                 "Authorization": f"Bearer {settings.RUNPOD_API_KEY}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             },
             json=payload,
-            timeout=30.0
+            timeout=30.0,
         )
         if response.status_code >= 400:
             raise ApiError(500, "RUNPOD_POD_CREATION_FAILED", "Failed to create pod")
-        
+
         data = response.json()
         return data["id"]
 
@@ -75,29 +74,25 @@ async def create_runpod_pod(
 async def terminate_runpod_pod(settings: AppSettings, pod_id: str) -> None:
     if not settings.RUNPOD_API_KEY:
         return
-    
+
     async with httpx.AsyncClient() as client:
         # First, stop the pod
         stop_response = await client.post(
             f"https://rest.runpod.io/v1/pods/{pod_id}/stop",
-            headers={
-                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
-            },
-            timeout=30.0
+            headers={"Authorization": f"Bearer {settings.RUNPOD_API_KEY}"},
+            timeout=30.0,
         )
         if stop_response.status_code >= 400:
             print(f"Warning: Failed to stop Runpod {pod_id}: {stop_response.text}")
-        
+
         # Wait a bit before terminating to allow Runpod to process the stop command
         await asyncio.sleep(5)
-        
+
         # Then, terminate the pod explicitly
         terminate_response = await client.delete(
             f"https://rest.runpod.io/v1/pods/{pod_id}",
-            headers={
-                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}"
-            },
-            timeout=30.0
+            headers={"Authorization": f"Bearer {settings.RUNPOD_API_KEY}"},
+            timeout=30.0,
         )
         if terminate_response.status_code >= 400:
             print(f"Warning: Failed to terminate Runpod {pod_id}: {terminate_response.text}")
@@ -286,6 +281,7 @@ async def create_realtime_session(
         pod_id=pod_id,
     )
 
+
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def terminate_realtime_session(
     session_id: uuid.UUID,
@@ -301,4 +297,3 @@ async def terminate_realtime_session(
         except Exception as e:
             # Log but don't fail the request - user has already disconnected
             print(f"Error terminating pod {pod_id}: {e}")
-

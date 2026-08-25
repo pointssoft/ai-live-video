@@ -117,7 +117,7 @@ class RealtimeLivePortrait:
         # X-axis (horizontal): 50%, Y-axis (vertical): 20%, Z-axis: 0%
         translation_delta[..., 0] *= 0.5  # Horizontal movement
         translation_delta[..., 1] *= 0.2  # Vertical movement (prevents upward look and neck stretch)
-        translation[..., 2].fill_(0)
+        translation_delta[..., 2].fill_(0)
         translation = source.source_info["t"] + translation_delta
 
         keypoints = scale * (source.source_info["kp"] @ rotation + expression) + translation

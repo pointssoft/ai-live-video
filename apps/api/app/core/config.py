@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     RUNPOD_API_KEY: str | None = None
     RUNPOD_ENDPOINT_ID: str | None = None
     RUNPOD_API_BASE_URL: str = "https://api.runpod.ai/v2"
+    RUNPOD_REALTIME_IMAGE: str = "malaknoyn/mimicmotion-realtime-worker:sha-a87313a13ef3"
     RUNPOD_REQUEST_TIMEOUT_SECONDS: int = 30
     RUNPOD_WEBHOOK_TOKEN: str | None = Field(default=None, min_length=32)
     RUNPOD_WEBHOOK_URL: str | None = None

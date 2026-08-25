@@ -54,6 +54,7 @@ async def test_runpod_worker_uses_session_agent_name(monkeypatch: pytest.MonkeyP
         S3_ACCESS_KEY_ID="key",
         S3_SECRET_ACCESS_KEY="secret",
         RUNPOD_API_KEY="runpod-key",
+        RUNPOD_REALTIME_IMAGE="registry.example/realtime-worker:sha-test",
         LIVEKIT_URL="wss://livekit.example",
         LIVEKIT_API_KEY="livekit-key",
         LIVEKIT_API_SECRET="s" * 32,
@@ -84,6 +85,7 @@ async def test_runpod_worker_uses_session_agent_name(monkeypatch: pytest.MonkeyP
 
     assert pod_id == "pod-test"
     assert request["url"] == "https://rest.runpod.io/v1/pods"
+    assert request["payload"]["imageName"] == "registry.example/realtime-worker:sha-test"
     assert request["payload"]["env"]["LIVEKIT_AGENT_NAME"] == "liveportrait-session-test"
 
 
