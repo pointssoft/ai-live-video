@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import timedelta
 
@@ -18,6 +19,9 @@ router = APIRouter(prefix="/realtime-sessions", tags=["realtime-sessions"])
 logger = logging.getLogger(__name__)
 
 REALTIME_AGENT_NAME_PREFIX = "liveportrait"
+RUNPOD_PODS_URL = "https://rest.runpod.io/v1/pods"
+RUNPOD_IMMUTABLE_IMAGE_PATTERN = re.compile(r"^.+:sha-[0-9a-f]{12}$")
+RUNPOD_ERROR_MESSAGE_MAX_LENGTH = 500
 DISPATCH_MAX_ATTEMPTS = 60
 DISPATCH_RETRY_DELAY_SECONDS = 2.0
 
@@ -26,19 +30,84 @@ def create_agent_name(session_id: uuid.UUID) -> str:
     return f"{REALTIME_AGENT_NAME_PREFIX}-{session_id}"
 
 
+def get_runpod_error_message(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+
+    candidates: list[object] = []
+    if isinstance(payload, dict):
+        candidates.extend((payload.get("error"), payload.get("message")))
+
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            candidate = candidate.get("message")
+        if isinstance(candidate, str) and candidate.strip():
+            return " ".join(candidate.split())[:RUNPOD_ERROR_MESSAGE_MAX_LENGTH]
+    return None
+
+
+def classify_runpod_creation_error(
+    status_code: int,
+    provider_message: str | None,
+) -> tuple[str, str]:
+    message = (provider_message or "").lower()
+    if status_code in {401, 403}:
+        return (
+            "RUNPOD_AUTH_FAILED",
+            "The realtime worker provider is not configured correctly.",
+        )
+    if status_code == 429:
+        return (
+            "RUNPOD_RATE_LIMITED",
+            "The realtime worker provider is busy. Please try again shortly.",
+        )
+    if any(term in message for term in ("balance", "billing", "credit", "fund")):
+        return (
+            "RUNPOD_BILLING_UNAVAILABLE",
+            "The realtime worker provider account is unavailable.",
+        )
+    if any(term in message for term in ("capacity", "gpu", "instance", "stock")):
+        return (
+            "RUNPOD_CAPACITY_UNAVAILABLE",
+            "No realtime GPU is currently available. Please try again shortly.",
+        )
+    if "image" in message:
+        return (
+            "RUNPOD_IMAGE_UNAVAILABLE",
+            "The realtime worker image is unavailable.",
+        )
+    return (
+        "RUNPOD_POD_CREATION_REJECTED",
+        "The realtime worker could not be provisioned.",
+    )
+
+
 async def create_runpod_pod(
     settings: AppSettings,
     session_id: uuid.UUID,
     agent_name: str,
 ) -> str:
     if not settings.RUNPOD_API_KEY:
-        raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
-    # You would pass specific configuration that matches your deploy-realtime-worker logic
-    pod_name = f"mimicmotion-realtime-{session_id}"
+        raise ApiError(503, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
 
+    image_name = settings.RUNPOD_REALTIME_IMAGE.strip()
+    if not RUNPOD_IMMUTABLE_IMAGE_PATTERN.fullmatch(image_name):
+        logger.error(
+            "realtime_image_invalid image=%s expected_tag=sha-<12 lowercase hex>",
+            image_name,
+        )
+        raise ApiError(
+            503,
+            "RUNPOD_IMAGE_INVALID",
+            "The realtime worker image is not configured correctly.",
+        )
+
+    pod_name = f"mimicmotion-realtime-{session_id}"
     payload = {
         "name": pod_name,
-        "imageName": settings.RUNPOD_REALTIME_IMAGE,
+        "imageName": image_name,
         "gpuTypeIds": ["NVIDIA L40S"],
         "gpuCount": 1,
         "containerDiskInGb": 100,
@@ -54,21 +123,90 @@ async def create_runpod_pod(
         },
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://rest.runpod.io/v1/pods",
-            headers={
-                "Authorization": f"Bearer {settings.RUNPOD_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=30.0,
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                RUNPOD_PODS_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.RUNPOD_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30.0,
+            )
+    except httpx.TimeoutException as exc:
+        logger.warning(
+            "realtime_pod_creation_timed_out session_id=%s image=%s",
+            session_id,
+            image_name,
         )
-        if response.status_code >= 400:
-            raise ApiError(500, "RUNPOD_POD_CREATION_FAILED", "Failed to create pod")
+        raise ApiError(
+            503,
+            "RUNPOD_TIMEOUT",
+            "The realtime worker provider timed out. Please try again.",
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.warning(
+            "realtime_pod_creation_request_failed session_id=%s image=%s error_type=%s",
+            session_id,
+            image_name,
+            type(exc).__name__,
+        )
+        raise ApiError(
+            503,
+            "RUNPOD_UNAVAILABLE",
+            "The realtime worker provider is unavailable. Please try again.",
+        ) from exc
 
+    if response.status_code >= 400:
+        provider_message = get_runpod_error_message(response)
+        error_code, user_message = classify_runpod_creation_error(
+            response.status_code,
+            provider_message,
+        )
+        logger.error(
+            "realtime_pod_creation_rejected session_id=%s image=%s "
+            "provider_status=%s error_code=%s provider_message=%s",
+            session_id,
+            image_name,
+            response.status_code,
+            error_code,
+            provider_message or "unavailable",
+        )
+        raise ApiError(
+            503,
+            error_code,
+            user_message,
+            details={"provider_status": response.status_code},
+        )
+
+    try:
         data = response.json()
-        return data["id"]
+    except ValueError as exc:
+        logger.error(
+            "realtime_pod_creation_invalid_response session_id=%s image=%s reason=invalid_json",
+            session_id,
+            image_name,
+        )
+        raise ApiError(
+            502,
+            "RUNPOD_RESPONSE_INVALID",
+            "The realtime worker provider returned an invalid response.",
+        ) from exc
+
+    pod_id = data.get("id") if isinstance(data, dict) else None
+    if not isinstance(pod_id, str) or not pod_id:
+        logger.error(
+            "realtime_pod_creation_invalid_response session_id=%s image=%s reason=missing_pod_id",
+            session_id,
+            image_name,
+        )
+        raise ApiError(
+            502,
+            "RUNPOD_RESPONSE_INVALID",
+            "The realtime worker provider returned an invalid response.",
+        )
+    return pod_id
 
 
 async def terminate_runpod_pod(settings: AppSettings, pod_id: str) -> None:

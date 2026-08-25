@@ -2,6 +2,7 @@ import json
 import uuid
 from typing import Any
 
+import httpx
 import pytest
 from livekit import api
 
@@ -13,6 +14,25 @@ from app.api.v1.realtime_sessions import (
     dispatch_agent,
 )
 from app.core.config import Settings
+from app.core.errors import ApiError
+
+
+def realtime_settings(
+    image: str = "registry.example/realtime-worker:sha-0123456789ab",
+) -> Settings:
+    return Settings(
+        DATABASE_URL="postgresql+asyncpg://user:pass@localhost/db",
+        AUTH_TOKEN_PEPPER="x" * 32,
+        S3_ENDPOINT_URL="https://storage.example",
+        S3_BUCKET="bucket",
+        S3_ACCESS_KEY_ID="key",
+        S3_SECRET_ACCESS_KEY="secret",
+        RUNPOD_API_KEY="runpod-key",
+        RUNPOD_REALTIME_IMAGE=image,
+        LIVEKIT_URL="wss://livekit.example",
+        LIVEKIT_API_KEY="livekit-key",
+        LIVEKIT_API_SECRET="s" * 32,
+    )
 
 
 def test_realtime_token_is_scoped_to_room() -> None:
@@ -46,19 +66,7 @@ def test_realtime_agent_name_is_unique_to_session() -> None:
 
 
 async def test_runpod_worker_uses_session_agent_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = Settings(
-        DATABASE_URL="postgresql+asyncpg://user:pass@localhost/db",
-        AUTH_TOKEN_PEPPER="x" * 32,
-        S3_ENDPOINT_URL="https://storage.example",
-        S3_BUCKET="bucket",
-        S3_ACCESS_KEY_ID="key",
-        S3_SECRET_ACCESS_KEY="secret",
-        RUNPOD_API_KEY="runpod-key",
-        RUNPOD_REALTIME_IMAGE="registry.example/realtime-worker:sha-test",
-        LIVEKIT_URL="wss://livekit.example",
-        LIVEKIT_API_KEY="livekit-key",
-        LIVEKIT_API_SECRET="s" * 32,
-    )
+    settings = realtime_settings()
     request: dict[str, Any] = {}
 
     class FakeResponse:
@@ -85,8 +93,75 @@ async def test_runpod_worker_uses_session_agent_name(monkeypatch: pytest.MonkeyP
 
     assert pod_id == "pod-test"
     assert request["url"] == "https://rest.runpod.io/v1/pods"
-    assert request["payload"]["imageName"] == "registry.example/realtime-worker:sha-test"
+    assert request["payload"]["imageName"] == "registry.example/realtime-worker:sha-0123456789ab"
     assert request["payload"]["env"]["LIVEKIT_AGENT_NAME"] == "liveportrait-session-test"
+
+
+async def test_runpod_worker_rejects_nonimmutable_image() -> None:
+    with pytest.raises(ApiError) as caught:
+        await create_runpod_pod(
+            realtime_settings("registry.example/realtime-worker:latest"),
+            uuid.uuid4(),
+            "liveportrait-session-test",
+        )
+
+    assert caught.value.status_code == 503
+    assert caught.value.code == "RUNPOD_IMAGE_INVALID"
+
+
+async def test_runpod_capacity_error_is_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        status_code = 400
+
+        def json(self) -> dict[str, str]:
+            return {"error": "There are no GPU instances available in secure cloud."}
+
+    class FakeAsyncClient:
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs: Any) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(realtime_sessions.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(ApiError) as caught:
+        await create_runpod_pod(
+            realtime_settings(),
+            uuid.uuid4(),
+            "liveportrait-session-test",
+        )
+
+    assert caught.value.status_code == 503
+    assert caught.value.code == "RUNPOD_CAPACITY_UNAVAILABLE"
+    assert caught.value.details == {"provider_status": 400}
+
+
+async def test_runpod_timeout_is_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAsyncClient:
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs: Any) -> None:
+            raise httpx.ReadTimeout("provider timed out")
+
+    monkeypatch.setattr(realtime_sessions.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(ApiError) as caught:
+        await create_runpod_pod(
+            realtime_settings(),
+            uuid.uuid4(),
+            "liveportrait-session-test",
+        )
+
+    assert caught.value.status_code == 503
+    assert caught.value.code == "RUNPOD_TIMEOUT"
 
 
 async def test_dispatch_retries_until_worker_registers(monkeypatch: pytest.MonkeyPatch) -> None:
