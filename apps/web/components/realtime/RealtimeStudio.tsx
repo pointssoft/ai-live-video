@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createLocalVideoTrack,
   LocalVideoTrack,
@@ -10,7 +10,7 @@ import {
   type RemoteTrack,
 } from "livekit-client";
 import { listPortraits } from "@/lib/portraits";
-import { createRealtimeSession } from "@/lib/realtime-sessions";
+import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-sessions";
 import type { Portrait } from "@/types/api";
 
 interface StoredSession {
@@ -24,6 +24,7 @@ interface StoredSession {
 }
 
 const SESSION_STORAGE_KEY = "mimicmotion_realtime_session";
+const WORKER_WAIT_TIMEOUT_MS = 150_000;
 
 function getStoredSession(): StoredSession | null {
   try {
@@ -72,6 +73,7 @@ export function RealtimeStudio() {
   const outputVideoRef = useRef<HTMLVideoElement>(null);
   const sessionInfoRef = useRef<{ sessionId: string; podId: string | null } | null>(null);
   const currentPortraitIdRef = useRef<string>("");
+  const workerWaitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLive = status === "Live";
 
@@ -94,7 +96,15 @@ export function RealtimeStudio() {
       .catch(() => setError("Could not load portraits."));
   }, []);
 
-  const stop = async () => {
+  const stop = useCallback(async () => {
+    if (workerWaitTimeoutRef.current) {
+      clearTimeout(workerWaitTimeoutRef.current);
+      workerWaitTimeoutRef.current = null;
+    }
+
+    const sessionInfo = sessionInfoRef.current;
+    sessionInfoRef.current = null;
+
     cameraTrackRef.current?.stop();
     cameraTrackRef.current = null;
     outputTrackRef.current = null;
@@ -103,40 +113,36 @@ export function RealtimeStudio() {
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (outputVideoRef.current) outputVideoRef.current.srcObject = null;
 
-    if (sessionInfoRef.current?.podId) {
-      import("@/lib/realtime-sessions").then(({ terminateRealtimeSession }) => {
-        if (sessionInfoRef.current?.podId) {
-          terminateRealtimeSession(sessionInfoRef.current.sessionId, sessionInfoRef.current.podId)
-            .catch(console.error);
-        }
-      });
-    }
-    sessionInfoRef.current = null;
     clearStoredSession();
-
     setConnecting(false);
     setReconnecting(false);
     setStatus("Session ended.");
-  };
 
-  useEffect(() => () => { void stop(); }, []);
-
-  // Check for existing session on mount
-  useEffect(() => {
-    const stored = getStoredSession();
-    if (stored) {
-      setReconnecting(true);
-      setPortraitId(stored.portraitId);
-      reconnectToSession(stored).catch((err) => {
-        console.error("Failed to reconnect:", err);
-        clearStoredSession();
-        setReconnecting(false);
-        setError("Previous session expired or could not be restored.");
-      });
+    if (sessionInfo?.podId) {
+      try {
+        await terminateRealtimeSession(sessionInfo.sessionId, sessionInfo.podId);
+      } catch (caught) {
+        console.error("Failed to terminate realtime pod:", caught);
+      }
     }
   }, []);
 
-  const reconnectToSession = async (stored: StoredSession) => {
+  const waitForWorker = useCallback((room: Room) => {
+    if (workerWaitTimeoutRef.current) clearTimeout(workerWaitTimeoutRef.current);
+    if (outputTrackRef.current) return;
+
+    workerWaitTimeoutRef.current = setTimeout(() => {
+      workerWaitTimeoutRef.current = null;
+      if (roomRef.current !== room || outputTrackRef.current) return;
+
+      setError("The realtime worker did not become ready. Please try again.");
+      void stop();
+    }, WORKER_WAIT_TIMEOUT_MS);
+  }, [stop]);
+
+  useEffect(() => () => { void stop(); }, [stop]);
+
+  const reconnectToSession = useCallback(async (stored: StoredSession) => {
     setStatus("Reconnecting to previous session…");
     setError("");
 
@@ -148,14 +154,22 @@ export function RealtimeStudio() {
       roomRef.current = room;
 
       room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind === Track.Kind.Video && outputVideoRef.current) {
+        if (track.kind === Track.Kind.Video) {
           outputTrackRef.current = track;
-          track.attach(outputVideoRef.current);
+          if (outputVideoRef.current) track.attach(outputVideoRef.current);
+          if (workerWaitTimeoutRef.current) {
+            clearTimeout(workerWaitTimeoutRef.current);
+            workerWaitTimeoutRef.current = null;
+          }
           setStatus("Live");
           setReconnecting(false);
         }
       });
       room.on(RoomEvent.Disconnected, () => {
+        if (workerWaitTimeoutRef.current) {
+          clearTimeout(workerWaitTimeoutRef.current);
+          workerWaitTimeoutRef.current = null;
+        }
         clearStoredSession();
         setStatus("Disconnected.");
       });
@@ -169,11 +183,27 @@ export function RealtimeStudio() {
       if (localVideoRef.current) cameraTrack.attach(localVideoRef.current);
       await room.localParticipant.publishTrack(cameraTrack, { source: Track.Source.Camera });
       setStatus("Reconnected. Waiting for the worker…");
+      waitForWorker(room);
     } catch (caught) {
       await stop();
       throw caught;
     }
-  };
+  }, [stop, waitForWorker]);
+
+  // Check for an existing session on mount.
+  useEffect(() => {
+    const stored = getStoredSession();
+    if (!stored) return;
+
+    setReconnecting(true);
+    setPortraitId(stored.portraitId);
+    void reconnectToSession(stored).catch((caught) => {
+      console.error("Failed to reconnect:", caught);
+      clearStoredSession();
+      setReconnecting(false);
+      setError("Previous session expired or could not be restored.");
+    });
+  }, [reconnectToSession]);
 
   const changePortrait = async (newPortraitId: string) => {
     if (!roomRef.current || changingPortrait) return;
@@ -245,13 +275,21 @@ export function RealtimeStudio() {
       roomRef.current = room;
 
       room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind === Track.Kind.Video && outputVideoRef.current) {
+        if (track.kind === Track.Kind.Video) {
           outputTrackRef.current = track;
-          track.attach(outputVideoRef.current);
+          if (outputVideoRef.current) track.attach(outputVideoRef.current);
+          if (workerWaitTimeoutRef.current) {
+            clearTimeout(workerWaitTimeoutRef.current);
+            workerWaitTimeoutRef.current = null;
+          }
           setStatus("Live");
         }
       });
       room.on(RoomEvent.Disconnected, () => {
+        if (workerWaitTimeoutRef.current) {
+          clearTimeout(workerWaitTimeoutRef.current);
+          workerWaitTimeoutRef.current = null;
+        }
         clearStoredSession();
         setStatus("Disconnected.");
       });
@@ -265,6 +303,7 @@ export function RealtimeStudio() {
       if (localVideoRef.current) cameraTrack.attach(localVideoRef.current);
       await room.localParticipant.publishTrack(cameraTrack, { source: Track.Source.Camera });
       setStatus("Camera connected. Waiting for the worker…");
+      waitForWorker(room);
     } catch (caught) {
       await stop();
       setError(caught instanceof Error ? caught.message : "Could not start the live session.");

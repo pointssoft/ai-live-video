@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from datetime import timedelta
 
@@ -14,9 +15,22 @@ from app.schemas.realtime_sessions import RealtimeSessionCreate, RealtimeSession
 from app.services import portrait_service
 
 router = APIRouter(prefix="/realtime-sessions", tags=["realtime-sessions"])
+logger = logging.getLogger(__name__)
+
+REALTIME_AGENT_NAME_PREFIX = "liveportrait"
+DISPATCH_MAX_ATTEMPTS = 60
+DISPATCH_RETRY_DELAY_SECONDS = 2.0
 
 
-async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str:
+def create_agent_name(session_id: uuid.UUID) -> str:
+    return f"{REALTIME_AGENT_NAME_PREFIX}-{session_id}"
+
+
+async def create_runpod_pod(
+    settings: AppSettings,
+    session_id: uuid.UUID,
+    agent_name: str,
+) -> str:
     if not settings.RUNPOD_API_KEY:
         raise ApiError(500, "RUNPOD_UNCONFIGURED", "Runpod API key is not configured.")
     # You would pass specific configuration that matches your deploy-realtime-worker logic
@@ -37,7 +51,7 @@ async def create_runpod_pod(settings: AppSettings, session_id: uuid.UUID) -> str
             "LIVEKIT_URL": settings.LIVEKIT_URL,
             "LIVEKIT_API_KEY": settings.LIVEKIT_API_KEY,
             "LIVEKIT_API_SECRET": settings.LIVEKIT_API_SECRET,
-            "LIVEKIT_AGENT_NAME": "liveportrait",
+            "LIVEKIT_AGENT_NAME": agent_name,
         }
     }
     
@@ -123,17 +137,97 @@ async def dispatch_agent(
     api_secret: str,
     room_name: str,
     agent_name: str,
-) -> None:
+    *,
+    max_attempts: int = DISPATCH_MAX_ATTEMPTS,
+    retry_delay_seconds: float = DISPATCH_RETRY_DELAY_SECONDS,
+) -> bool:
     livekit_api = api.LiveKitAPI(url=server_url, api_key=api_key, api_secret=api_secret)
     try:
-        await livekit_api.agent_dispatch.create_dispatch(
-            agent_dispatch.CreateAgentDispatchRequest(
-                agent_name=agent_name,
-                room=room_name,
-            )
-        )
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                try:
+                    dispatches = await livekit_api.agent_dispatch.list_dispatch(room_name)
+                    if any(
+                        dispatch.agent_name == agent_name and not dispatch.state.deleted_at
+                        for dispatch in dispatches
+                    ):
+                        logger.info(
+                            "realtime_agent_dispatch_already_exists",
+                            extra={"room_name": room_name, "agent_name": agent_name},
+                        )
+                        return True
+                except Exception:
+                    # The room or agent may not exist yet while the pod is starting.
+                    pass
+
+            try:
+                await livekit_api.agent_dispatch.create_dispatch(
+                    agent_dispatch.CreateAgentDispatchRequest(
+                        agent_name=agent_name,
+                        room=room_name,
+                    )
+                )
+                logger.info(
+                    "realtime_agent_dispatched",
+                    extra={
+                        "room_name": room_name,
+                        "agent_name": agent_name,
+                        "attempt": attempt,
+                    },
+                )
+                return True
+            except Exception as exc:
+                if attempt == max_attempts:
+                    logger.exception(
+                        "realtime_agent_dispatch_failed",
+                        extra={
+                            "room_name": room_name,
+                            "agent_name": agent_name,
+                            "attempts": max_attempts,
+                        },
+                    )
+                    return False
+                if attempt == 1 or attempt % 10 == 0:
+                    logger.warning(
+                        "realtime_agent_dispatch_retry",
+                        extra={
+                            "room_name": room_name,
+                            "agent_name": agent_name,
+                            "attempt": attempt,
+                            "error": str(exc),
+                        },
+                    )
+                await asyncio.sleep(retry_delay_seconds)
     finally:
         await livekit_api.aclose()
+
+    return False
+
+
+async def dispatch_or_terminate_pod(
+    *,
+    settings: AppSettings,
+    pod_id: str,
+    room_name: str,
+    agent_name: str,
+) -> None:
+    dispatched = await dispatch_agent(
+        server_url=settings.LIVEKIT_URL or "",
+        api_key=settings.LIVEKIT_API_KEY or "",
+        api_secret=settings.LIVEKIT_API_SECRET or "",
+        room_name=room_name,
+        agent_name=agent_name,
+    )
+    if dispatched:
+        return
+
+    try:
+        await terminate_runpod_pod(settings, pod_id)
+    except Exception:
+        logger.exception(
+            "realtime_pod_cleanup_after_dispatch_failure_failed",
+            extra={"pod_id": pod_id, "room_name": room_name},
+        )
 
 
 @router.post("", response_model=RealtimeSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -152,10 +246,11 @@ async def create_realtime_session(
 
     portrait = await portrait_service.get_portrait(db, storage, user, payload.portrait_id)
     session_id = uuid.uuid4()
-    
-    # Create an on-demand Runpod WebRTC Pod
-    pod_id = await create_runpod_pod(settings, session_id)
-    
+    agent_name = create_agent_name(session_id)
+
+    # Give each on-demand worker a unique name so LiveKit routes this session to its pod.
+    pod_id = await create_runpod_pod(settings, session_id, agent_name)
+
     room_name = f"realtime-{session_id}"
     identity = f"user-{user.id}"
     metadata = json.dumps(
@@ -176,12 +271,11 @@ async def create_realtime_session(
         ttl_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
     )
     background_tasks.add_task(
-        dispatch_agent,
-        server_url=settings.LIVEKIT_URL,
-        api_key=settings.LIVEKIT_API_KEY,
-        api_secret=settings.LIVEKIT_API_SECRET,
+        dispatch_or_terminate_pod,
+        settings=settings,
+        pod_id=pod_id,
         room_name=room_name,
-        agent_name="liveportrait",
+        agent_name=agent_name,
     )
     return RealtimeSessionResponse(
         session_id=session_id,
