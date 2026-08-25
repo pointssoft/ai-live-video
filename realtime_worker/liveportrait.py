@@ -10,6 +10,8 @@ from src.utils.camera import get_rotation_matrix
 from src.utils.crop import paste_back, prepare_paste_back
 from src.utils.io import resize_to_limit
 
+from realtime_worker.motion import MotionConfig, MotionState, limit_stitching_delta
+
 
 @dataclass
 class SourceState:
@@ -20,6 +22,7 @@ class SourceState:
     source_rotation: torch.Tensor
     source_features: torch.Tensor
     mask: np.ndarray
+    last_rendered: np.ndarray | None = None
 
 
 class RealtimeLivePortrait:
@@ -40,9 +43,8 @@ class RealtimeLivePortrait:
         self.pipeline = LivePortraitPipeline(inference, CropConfig())
         self.wrapper = self.pipeline.live_portrait_wrapper
         self.cropper = self.pipeline.cropper
+        self.motion = MotionState(MotionConfig())
         self.source: SourceState | None = None
-        self.initial_driving: dict[str, torch.Tensor] | None = None
-        self.initial_driving_rotation: torch.Tensor | None = None
 
     def set_source(self, image_rgb: np.ndarray) -> tuple[int, int]:
         config = self.wrapper.inference_cfg
@@ -63,6 +65,7 @@ class RealtimeLivePortrait:
             crop_info["M_c2o"],
             dsize=(image.shape[1], image.shape[0]),
         )
+        self.motion.reset()
         self.source = SourceState(
             image=image,
             crop_info=crop_info,
@@ -72,8 +75,6 @@ class RealtimeLivePortrait:
             source_features=source_features,
             mask=mask,
         )
-        self.initial_driving = None
-        self.initial_driving_rotation = None
         return image.shape[1], image.shape[0]
 
     @torch.inference_mode()
@@ -84,44 +85,44 @@ class RealtimeLivePortrait:
 
         driving_crop = self.cropper.crop_source_image(driving_rgb, self.cropper.crop_cfg)
         if driving_crop is None:
+            if source.last_rendered is not None:
+                return source.last_rendered
             return source.image
+
         driving_input = self.wrapper.prepare_source(driving_crop["img_crop_256x256"])
         driving_info = self.wrapper.get_kp_info(driving_input)
         driving_rotation = get_rotation_matrix(
             driving_info["pitch"], driving_info["yaw"], driving_info["roll"]
         )
-        if self.initial_driving is None:
-            self.initial_driving = {key: value.clone() for key, value in driving_info.items()}
-            self.initial_driving_rotation = driving_rotation.clone()
+        if not self.motion.update(driving_info, driving_rotation):
+            if source.last_rendered is not None:
+                return source.last_rendered
+            return source.image
+        rotation, expression, scale, translation = self.motion.target_motion(
+            source.source_info,
+            source.source_rotation,
+            source.source_keypoints,
+        )
 
-        initial = self.initial_driving
-        initial_rotation = self.initial_driving_rotation
-        if initial_rotation is None:
-            return None
-
-        # Apply relative rotation
-        rotation = (driving_rotation @ initial_rotation.permute(0, 2, 1)) @ source.source_rotation
-
-        # Apply relative expression changes
-        expression = source.source_info["exp"] + (driving_info["exp"] - initial["exp"])
-
-        # Keep scale more stable - reduce scale changes to prevent neck stretching
-        scale_ratio = driving_info["scale"] / initial["scale"]
-        # Dampen scale changes significantly (only 30% of change applied)
-        scale_ratio = 1.0 + (scale_ratio - 1.0) * 0.3
-        scale = source.source_info["scale"] * scale_ratio
-
-        # Apply relative translation with dampening
-        translation_delta = driving_info["t"] - initial["t"]
-        # Reduce ALL translation to minimize neck elongation and upward gaze
-        # X-axis (horizontal): 50%, Y-axis (vertical): 20%, Z-axis: 0%
-        translation_delta[..., 0] *= 0.5  # Horizontal movement
-        translation_delta[..., 1] *= 0.2  # Vertical movement (prevents upward look and neck stretch)
-        translation_delta[..., 2].fill_(0)
-        translation = source.source_info["t"] + translation_delta
-
-        keypoints = scale * (source.source_info["kp"] @ rotation + expression) + translation
-        keypoints = self.wrapper.stitching(source.source_keypoints, keypoints)
+        # This mirrors the official wrapper.transform_keypoint operation while
+        # allowing relative driving rotation to be composed with source rotation.
+        keypoints = _transform_keypoints(
+            source.source_info["kp"],
+            rotation,
+            expression,
+            scale,
+            translation,
+        )
+        stitched_keypoints = self.wrapper.stitching(
+            source.source_keypoints,
+            keypoints,
+        )
+        keypoints = limit_stitching_delta(
+            source.source_keypoints,
+            keypoints,
+            stitched_keypoints,
+            self.motion.config,
+        )
 
         output = self.wrapper.warp_decode(
             source.source_features, source.source_keypoints, keypoints
@@ -133,7 +134,25 @@ class RealtimeLivePortrait:
             source.image,
             source.mask,
         )
-        return np.ascontiguousarray(frame, dtype=np.uint8)
+        source.last_rendered = np.ascontiguousarray(frame, dtype=np.uint8)
+        return source.last_rendered
+
+
+def _transform_keypoints(
+    canonical_keypoints: torch.Tensor,
+    rotation: torch.Tensor,
+    expression: torch.Tensor,
+    scale: torch.Tensor,
+    translation: torch.Tensor,
+) -> torch.Tensor:
+    """Apply the pinned LivePortrait keypoint transform with explicit batching."""
+    batch_size = canonical_keypoints.shape[0]
+    canonical_keypoints = canonical_keypoints.reshape(batch_size, -1, 3)
+    expression = expression.reshape(batch_size, -1, 3)
+    transformed = canonical_keypoints @ rotation + expression
+    transformed = transformed * scale.reshape(batch_size, 1, 1)
+    transformed[..., :2] += translation.reshape(batch_size, 1, 3)[..., :2]
+    return transformed
 
 
 def decode_image(content: bytes) -> np.ndarray:
