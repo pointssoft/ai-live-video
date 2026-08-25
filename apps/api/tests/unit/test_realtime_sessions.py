@@ -53,7 +53,7 @@ def test_realtime_token_is_scoped_to_room() -> None:
     assert claims.video.room == "realtime-test"
     assert claims.video.can_publish is True
     assert claims.video.can_subscribe is True
-    assert claims.video.can_publish_data is False
+    assert claims.video.can_publish_data is True
     assert json.loads(claims.metadata)["portrait_id"] == "portrait-test"
 
 

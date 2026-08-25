@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 
@@ -81,7 +82,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                     if new_portrait_url:
                         logger.info("Changing portrait to: %s", new_portrait_url)
                         # Schedule portrait change in background
-                        ctx.create_task(
+                        asyncio.create_task(
                             _change_portrait(renderer, new_portrait_url, source)
                         )
             except Exception:
