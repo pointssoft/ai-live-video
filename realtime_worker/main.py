@@ -80,7 +80,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                 if message.get("type") == "change_portrait":
                     new_portrait_url = message.get("portrait_url")
                     if new_portrait_url:
-                        logger.info("Changing portrait to: %s", new_portrait_url)
+                        logger.info("realtime_portrait_change_requested")
                         # Schedule portrait change in background
                         asyncio.create_task(
                             _change_portrait(renderer, new_portrait_url, source)
@@ -148,7 +148,10 @@ async def _change_portrait(
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             response = await client.get(portrait_url)
-            response.raise_for_status()
+        if response.is_error:
+            raise RuntimeError(
+                f"Portrait download failed with HTTP {response.status_code}."
+            )
 
         width, height = renderer.set_source(decode_image(response.content))
         # Note: VideoSource dimensions are set at creation and can't be changed

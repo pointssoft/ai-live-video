@@ -9,7 +9,7 @@ import {
   Track,
   type RemoteTrack,
 } from "livekit-client";
-import { listPortraits } from "@/lib/portraits";
+import { getPortrait, listPortraits } from "@/lib/portraits";
 import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-sessions";
 import type { Portrait } from "@/types/api";
 
@@ -213,11 +213,8 @@ export function RealtimeStudio() {
     setError("");
 
     try {
-      // Get the new portrait URL from the portraits list
-      const portrait = portraits.find(p => p.id === newPortraitId);
-      if (!portrait) {
-        throw new Error("Portrait not found");
-      }
+      // Refresh the portrait so the worker receives a newly signed download URL.
+      const portrait = await getPortrait(newPortraitId);
 
       // Send portrait change message via data channel
       const encoder = new TextEncoder();

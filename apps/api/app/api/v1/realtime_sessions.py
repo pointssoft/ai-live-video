@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 REALTIME_AGENT_NAME_PREFIX = "liveportrait"
 RUNPOD_PODS_URL = "https://rest.runpod.io/v1/pods"
-RUNPOD_IMMUTABLE_IMAGE_PATTERN = re.compile(r"^.+:sha-[0-9a-f]{12}$")
+RUNPOD_IMMUTABLE_IMAGE_PATTERN = re.compile(
+    r"^[^\s:]+(?:/[^\s:]+)*:realtime-(?:latest|[A-Za-z0-9._-]+)$"
+)
 RUNPOD_ERROR_MESSAGE_MAX_LENGTH = 500
 DISPATCH_MAX_ATTEMPTS = 60
 DISPATCH_RETRY_DELAY_SECONDS = 2.0
