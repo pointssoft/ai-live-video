@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   createLocalVideoTrack,
   LocalVideoTrack,
@@ -36,7 +37,17 @@ interface ViewerCredentialsPanelProps {
   onCopy: () => void;
 }
 
+function serializeViewerCredentials(credentials: ViewerCredentials, formatted = false): string {
+  return JSON.stringify({
+    wsUrl: credentials.wsUrl,
+    accessToken: credentials.accessToken,
+    roomId: credentials.roomId,
+  }, null, formatted ? 2 : undefined);
+}
+
 function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentialsPanelProps) {
+  const qrValue = serializeViewerCredentials(credentials);
+
   return (
     <div className="viewer-credentials">
       <h4>Read-only app credentials</h4>
@@ -49,6 +60,18 @@ function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentia
       <button type="button" className="secondary" onClick={onCopy}>
         {copied ? "Copied" : "Copy app credentials"}
       </button>
+      <div className="viewer-credentials-qr">
+        <QRCodeSVG
+          value={qrValue}
+          size={256}
+          level="L"
+          marginSize={4}
+          bgColor="#ffffff"
+          fgColor="#080d19"
+          title="Read-only app credentials QR code"
+        />
+        <span>Scan with your mobile app</span>
+      </div>
       <p className="viewer-credentials-hint">
         Read-only token. It expires in {Math.ceil(credentials.expiresInSeconds / 60)} minutes.
       </p>
@@ -134,11 +157,7 @@ export function RealtimeStudio() {
   const copyViewerCredentials = useCallback(async () => {
     if (!viewerCredentials) return;
 
-    const payload = JSON.stringify({
-      wsUrl: viewerCredentials.wsUrl,
-      accessToken: viewerCredentials.accessToken,
-      roomId: viewerCredentials.roomId,
-    }, null, 2);
+    const payload = serializeViewerCredentials(viewerCredentials, true);
 
     try {
       await navigator.clipboard.writeText(payload);

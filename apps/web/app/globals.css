@@ -161,6 +161,26 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
   overflow-wrap: anywhere;
 }
 
+.viewer-credentials-qr {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.viewer-credentials-qr svg {
+  display: block;
+  width: min(100%, 256px);
+  height: auto;
+  border-radius: 0.35rem;
+}
+
+.viewer-credentials-qr span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
 .viewer-credentials-hint {
   margin: 0;
   font-size: 0.75rem;
