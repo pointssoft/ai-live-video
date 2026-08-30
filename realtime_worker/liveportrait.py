@@ -10,7 +10,13 @@ from src.utils.camera import get_rotation_matrix
 from src.utils.crop import paste_back, prepare_paste_back
 from src.utils.io import resize_to_limit
 
-from realtime_worker.motion import MotionConfig, MotionState, limit_stitching_delta
+from realtime_worker.motion import (
+    FacialControls,
+    MotionConfig,
+    MotionState,
+    apply_facial_controls,
+    limit_stitching_delta,
+)
 
 
 @dataclass
@@ -44,7 +50,22 @@ class RealtimeLivePortrait:
         self.wrapper = self.pipeline.live_portrait_wrapper
         self.cropper = self.pipeline.cropper
         self.motion = MotionState(MotionConfig())
+        self.facial_controls = FacialControls()
         self.source: SourceState | None = None
+
+    def reset_facial_controls(self) -> None:
+        self.facial_controls = FacialControls()
+
+    def set_facial_controls(
+        self,
+        eye_openness: object,
+        mouth_openness: object,
+    ) -> bool:
+        controls = FacialControls.from_values(eye_openness, mouth_openness)
+        if controls is None:
+            return False
+        self.facial_controls = controls
+        return True
 
     def set_source(self, image_rgb: np.ndarray) -> tuple[int, int]:
         config = self.wrapper.inference_cfg
@@ -103,6 +124,7 @@ class RealtimeLivePortrait:
             source.source_rotation,
             source.source_keypoints,
         )
+        expression = apply_facial_controls(expression, self.facial_controls)
 
         # This mirrors the official wrapper.transform_keypoint operation while
         # allowing relative driving rotation to be composed with source rotation.

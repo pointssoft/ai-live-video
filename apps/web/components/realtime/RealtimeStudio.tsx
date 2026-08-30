@@ -14,6 +14,11 @@ import { getPortrait, listPortraits } from "@/lib/portraits";
 import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-sessions";
 import type { Portrait } from "@/types/api";
 
+interface ExpressionControls {
+  eyeOpenness: number;
+  mouthOpenness: number;
+}
+
 interface StoredSession {
   sessionId: string;
   podId: string | null;
@@ -22,6 +27,8 @@ interface StoredSession {
   participantToken: string;
   portraitId: string;
   expiresAt: number;
+  eyeOpenness?: number;
+  mouthOpenness?: number;
 }
 
 interface ViewerCredentials {
@@ -81,6 +88,34 @@ function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentia
 
 const SESSION_STORAGE_KEY = "mimicmotion_realtime_session";
 const WORKER_WAIT_TIMEOUT_MS = 300_000;
+const EXPRESSION_CONTROLS_DEBOUNCE_MS = 120;
+const DEFAULT_EXPRESSION_CONTROLS: ExpressionControls = {
+  eyeOpenness: -0.10,
+  mouthOpenness: -0.15,
+};
+
+function clampExpressionControl(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(1, Math.max(-1, value));
+}
+
+function expressionControlsFromSession(session: StoredSession): ExpressionControls {
+  return {
+    eyeOpenness: clampExpressionControl(
+      session.eyeOpenness,
+      DEFAULT_EXPRESSION_CONTROLS.eyeOpenness,
+    ),
+    mouthOpenness: clampExpressionControl(
+      session.mouthOpenness,
+      DEFAULT_EXPRESSION_CONTROLS.mouthOpenness,
+    ),
+  };
+}
+
+function expressionControlLabel(value: number): string {
+  if (value === 0) return "Original";
+  return `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
+}
 
 function getStoredSession(): StoredSession | null {
   try {
@@ -106,6 +141,37 @@ function storeSession(session: StoredSession): void {
   }
 }
 
+function storeExpressionControls(controls: ExpressionControls): void {
+  const session = getStoredSession();
+  if (!session) return;
+  storeSession({
+    ...session,
+    eyeOpenness: controls.eyeOpenness,
+    mouthOpenness: controls.mouthOpenness,
+  });
+}
+
+function storePortraitId(portraitId: string): void {
+  const session = getStoredSession();
+  if (!session) return;
+  storeSession({ ...session, portraitId });
+}
+
+async function publishExpressionControls(
+  room: Room,
+  controls: ExpressionControls,
+): Promise<void> {
+  const message = JSON.stringify({
+    type: "update_expression_controls",
+    eye_openness: controls.eyeOpenness,
+    mouth_openness: controls.mouthOpenness,
+  });
+  await room.localParticipant.publishData(
+    new TextEncoder().encode(message),
+    { reliable: true },
+  );
+}
+
 function clearStoredSession(): void {
   try {
     localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -124,6 +190,9 @@ export function RealtimeStudio() {
   const [reconnecting, setReconnecting] = useState(false);
   const [viewerCredentials, setViewerCredentials] = useState<ViewerCredentials | null>(null);
   const [credentialsCopied, setCredentialsCopied] = useState(false);
+  const [expressionControls, setExpressionControls] = useState<ExpressionControls>(
+    DEFAULT_EXPRESSION_CONTROLS,
+  );
   const roomRef = useRef<Room | null>(null);
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
   const outputTrackRef = useRef<RemoteTrack | null>(null);
@@ -132,6 +201,8 @@ export function RealtimeStudio() {
   const sessionInfoRef = useRef<{ sessionId: string; podId: string | null } | null>(null);
   const currentPortraitIdRef = useRef<string>("");
   const workerWaitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expressionControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expressionControlsRef = useRef<ExpressionControls>(DEFAULT_EXPRESSION_CONTROLS);
 
   const isLive = status === "Live";
 
@@ -149,7 +220,7 @@ export function RealtimeStudio() {
     listPortraits()
       .then((page) => {
         setPortraits(page.items);
-        setPortraitId(page.items[0]?.id ?? "");
+        setPortraitId((current) => current || page.items[0]?.id || "");
       })
       .catch(() => setError("Could not load portraits."));
   }, []);
@@ -172,6 +243,10 @@ export function RealtimeStudio() {
     if (workerWaitTimeoutRef.current) {
       clearTimeout(workerWaitTimeoutRef.current);
       workerWaitTimeoutRef.current = null;
+    }
+    if (expressionControlsTimeoutRef.current) {
+      clearTimeout(expressionControlsTimeoutRef.current);
+      expressionControlsTimeoutRef.current = null;
     }
 
     const sessionInfo = sessionInfoRef.current;
@@ -201,6 +276,35 @@ export function RealtimeStudio() {
     }
   }, []);
 
+  const syncExpressionControls = useCallback(
+    (room: Room, controls = expressionControlsRef.current) => {
+      void publishExpressionControls(room, controls).catch((caught) => {
+        console.error("Failed to update expression controls:", caught);
+        setError("Could not update the live expression controls.");
+      });
+    },
+    [],
+  );
+
+  const updateExpressionControls = useCallback((controls: ExpressionControls) => {
+    expressionControlsRef.current = controls;
+    setExpressionControls(controls);
+    storeExpressionControls(controls);
+
+    if (expressionControlsTimeoutRef.current) {
+      clearTimeout(expressionControlsTimeoutRef.current);
+    }
+    expressionControlsTimeoutRef.current = setTimeout(() => {
+      expressionControlsTimeoutRef.current = null;
+      const room = roomRef.current;
+      if (room && outputTrackRef.current) syncExpressionControls(room);
+    }, EXPRESSION_CONTROLS_DEBOUNCE_MS);
+  }, [syncExpressionControls]);
+
+  const resetExpressionControls = useCallback(() => {
+    updateExpressionControls(DEFAULT_EXPRESSION_CONTROLS);
+  }, [updateExpressionControls]);
+
   const waitForWorker = useCallback((room: Room) => {
     if (workerWaitTimeoutRef.current) clearTimeout(workerWaitTimeoutRef.current);
     if (outputTrackRef.current) return;
@@ -221,6 +325,9 @@ export function RealtimeStudio() {
     setError("");
 
     try {
+      const restoredControls = expressionControlsFromSession(stored);
+      expressionControlsRef.current = restoredControls;
+      setExpressionControls(restoredControls);
       sessionInfoRef.current = { sessionId: stored.sessionId, podId: stored.podId };
       currentPortraitIdRef.current = stored.portraitId;
 
@@ -237,6 +344,7 @@ export function RealtimeStudio() {
           }
           setStatus("Live");
           setReconnecting(false);
+          syncExpressionControls(room);
         }
       });
       room.on(RoomEvent.Disconnected, () => {
@@ -262,7 +370,7 @@ export function RealtimeStudio() {
       await stop();
       throw caught;
     }
-  }, [stop, waitForWorker]);
+  }, [stop, syncExpressionControls, waitForWorker]);
 
   // Check for an existing session on mount.
   useEffect(() => {
@@ -305,6 +413,7 @@ export function RealtimeStudio() {
 
       currentPortraitIdRef.current = newPortraitId;
       setPortraitId(newPortraitId);
+      storePortraitId(newPortraitId);
       setStatus("Portrait changed successfully");
 
       // Reset status to "Live" after 2 seconds
@@ -347,6 +456,8 @@ export function RealtimeStudio() {
         participantToken: session.participant_token,
         portraitId: portraitId,
         expiresAt: expiresAt,
+        eyeOpenness: expressionControlsRef.current.eyeOpenness,
+        mouthOpenness: expressionControlsRef.current.mouthOpenness,
       });
 
       const room = new Room({ adaptiveStream: true, dynacast: true });
@@ -361,6 +472,7 @@ export function RealtimeStudio() {
             workerWaitTimeoutRef.current = null;
           }
           setStatus("Live");
+          syncExpressionControls(room);
         }
       });
       room.on(RoomEvent.Disconnected, () => {
@@ -415,6 +527,74 @@ export function RealtimeStudio() {
             >
               {portraits.map((portrait) => <option key={portrait.id} value={portrait.id}>{portrait.id.slice(0, 8)}</option>)}
             </select>
+          </div>
+          <div className="live-control-group expression-controls" aria-labelledby="expression-controls-title">
+            <div className="expression-controls-heading">
+              <div>
+                <h4 id="expression-controls-title">Expression balance</h4>
+                <p>Fine-tune the portrait while live.</p>
+              </div>
+              <button
+                type="button"
+                className="expression-reset"
+                onClick={resetExpressionControls}
+                disabled={reconnecting}
+              >
+                Reset adjustments
+              </button>
+            </div>
+
+            <div className="expression-slider">
+              <div className="expression-slider-header">
+                <label htmlFor="eye-openness">Eye openness</label>
+                <output htmlFor="eye-openness">
+                  {expressionControlLabel(expressionControls.eyeOpenness)}
+                </output>
+              </div>
+              <input
+                id="eye-openness"
+                type="range"
+                min="-1"
+                max="1"
+                step="0.05"
+                value={expressionControls.eyeOpenness}
+                onChange={(event) => updateExpressionControls({
+                  ...expressionControlsRef.current,
+                  eyeOpenness: Number(event.target.value),
+                })}
+                disabled={reconnecting}
+              />
+              <div className="expression-slider-scale" aria-hidden="true">
+                <span>More closed</span>
+                <span>More open</span>
+              </div>
+            </div>
+
+            <div className="expression-slider">
+              <div className="expression-slider-header">
+                <label htmlFor="mouth-openness">Mouth openness</label>
+                <output htmlFor="mouth-openness">
+                  {expressionControlLabel(expressionControls.mouthOpenness)}
+                </output>
+              </div>
+              <input
+                id="mouth-openness"
+                type="range"
+                min="-1"
+                max="1"
+                step="0.05"
+                value={expressionControls.mouthOpenness}
+                onChange={(event) => updateExpressionControls({
+                  ...expressionControlsRef.current,
+                  mouthOpenness: Number(event.target.value),
+                })}
+                disabled={reconnecting}
+              />
+              <div className="expression-slider-scale" aria-hidden="true">
+                <span>More closed</span>
+                <span>More open</span>
+              </div>
+            </div>
           </div>
           {viewerCredentials && (
             <ViewerCredentialsPanel

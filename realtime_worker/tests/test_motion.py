@@ -1,6 +1,13 @@
 import torch
 
-from realtime_worker.motion import MotionState, limit_stitching_delta
+from realtime_worker.motion import (
+    DEFAULT_EYE_OPENNESS,
+    DEFAULT_MOUTH_OPENNESS,
+    FacialControls,
+    MotionState,
+    apply_facial_controls,
+    limit_stitching_delta,
+)
 
 
 def _source_info() -> dict[str, torch.Tensor]:
@@ -139,3 +146,95 @@ def test_stitching_correction_is_limited_to_face_extent() -> None:
     )
 
     assert torch.all(correction <= face_extent[:, None] * 0.20 + 1e-5)
+
+
+def test_zero_facial_controls_are_noop_without_mutating_expression() -> None:
+    expression = torch.arange(63, dtype=torch.float32).reshape(1, 21, 3)
+    original = expression.clone()
+
+    adjusted = apply_facial_controls(
+        expression,
+        FacialControls(eye_openness=0.0, mouth_openness=0.0),
+    )
+
+    assert torch.equal(adjusted, original)
+    assert torch.equal(expression, original)
+    assert adjusted.data_ptr() != expression.data_ptr()
+
+
+def test_facial_controls_apply_advanced_live_portrait_offsets() -> None:
+    expression = torch.zeros(1, 21, 3)
+
+    adjusted = apply_facial_controls(
+        expression,
+        FacialControls(eye_openness=-0.5, mouth_openness=-0.5),
+    )
+
+    assert torch.isclose(adjusted[0, 11, 1], torch.tensor(-0.0100))
+    assert torch.isclose(adjusted[0, 13, 1], torch.tensor(0.0030))
+    assert torch.isclose(adjusted[0, 15, 1], torch.tensor(-0.0100))
+    assert torch.isclose(adjusted[0, 16, 1], torch.tensor(0.0030))
+    assert torch.isclose(adjusted[0, 1, 1], torch.tensor(-0.0025))
+    assert torch.isclose(adjusted[0, 2, 1], torch.tensor(0.0025))
+    assert torch.isclose(adjusted[0, 19, 1], torch.tensor(-0.0150))
+    assert torch.isclose(adjusted[0, 19, 2], torch.tensor(-0.0015))
+    assert torch.isclose(adjusted[0, 17, 1], torch.tensor(0.0015))
+
+    changed = adjusted != expression
+    expected = torch.zeros_like(changed)
+    for keypoint, axis in (
+        (11, 1),
+        (13, 1),
+        (15, 1),
+        (16, 1),
+        (1, 1),
+        (2, 1),
+        (19, 1),
+        (19, 2),
+        (17, 1),
+    ):
+        expected[..., keypoint, axis] = True
+    assert torch.equal(changed, expected)
+
+
+def test_flattened_facial_expression_shape_is_preserved() -> None:
+    expression = torch.zeros(1, 63)
+
+    adjusted = apply_facial_controls(
+        expression,
+        FacialControls(eye_openness=-0.5, mouth_openness=-0.5),
+    )
+    adjusted_keypoints = adjusted.reshape(1, 21, 3)
+
+    assert adjusted.shape == expression.shape
+    assert torch.isclose(adjusted_keypoints[0, 11, 1], torch.tensor(-0.0100))
+    assert torch.isclose(adjusted_keypoints[0, 19, 1], torch.tensor(-0.0150))
+    assert torch.equal(expression, torch.zeros_like(expression))
+
+
+def test_invalid_facial_expression_shape_is_rejected() -> None:
+    expression = torch.zeros(1, 59)
+
+    try:
+        apply_facial_controls(expression, FacialControls())
+    except ValueError as exc:
+        assert "at least 20 XYZ keypoints" in str(exc)
+    else:
+        raise AssertionError("Invalid expression shape was accepted.")
+
+
+def test_facial_control_values_are_validated_and_bounded() -> None:
+    controls = FacialControls.from_values(-2, 4.5)
+
+    assert controls == FacialControls(eye_openness=-1.0, mouth_openness=1.0)
+    assert FacialControls.from_values(True, 0.0) is None
+    assert FacialControls.from_values("0", 0.0) is None
+    assert FacialControls.from_values(float("nan"), 0.0) is None
+    assert FacialControls.from_values(0.0, float("inf")) is None
+
+
+def test_facial_control_defaults_are_light_corrections() -> None:
+    controls = FacialControls()
+
+    assert controls.eye_openness == DEFAULT_EYE_OPENNESS == -0.10
+    assert controls.mouth_openness == DEFAULT_MOUTH_OPENNESS == -0.15

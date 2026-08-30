@@ -58,29 +58,22 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         renderer = ctx.proc.userdata["renderer"]
         if not isinstance(renderer, RealtimeLivePortrait):
             raise TypeError("LivePortrait did not initialize correctly.")
+        renderer.reset_facial_controls()
         width, height = renderer.set_source(decode_image(response.content))
         logger.info(
             "realtime_portrait_prepared",
             extra={"frame_width": width, "frame_height": height},
         )
 
-        stage = "publish_output_track"
-        source = rtc.VideoSource(width, height)
-        output_track = rtc.LocalVideoTrack.create_video_track(
-            "liveportrait-output", source
-        )
-        options = rtc.TrackPublishOptions()
-        options.source = rtc.TrackSource.SOURCE_CAMERA
-        await ctx.room.local_participant.publish_track(output_track, options)
-        logger.info("realtime_output_track_published")
-
-        # Handle data messages for portrait changes
+        # Handle data messages before publishing output so the browser can safely
+        # synchronize controls as soon as it subscribes to the track.
         @ctx.room.on("data_received")
         def on_data_received(data: rtc.DataPacket):
             nonlocal portrait_change_task
             try:
                 message = json.loads(data.data.decode("utf-8"))
-                if message.get("type") == "change_portrait":
+                message_type = message.get("type")
+                if message_type == "change_portrait":
                     new_portrait_url = message.get("portrait_url")
                     if isinstance(new_portrait_url, str) and new_portrait_url:
                         logger.info("realtime_portrait_change_requested")
@@ -93,8 +86,26 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                             _change_portrait(renderer, new_portrait_url),
                             name="realtime-portrait-change",
                         )
+                elif message_type == "update_expression_controls":
+                    if renderer.set_facial_controls(
+                        message.get("eye_openness"),
+                        message.get("mouth_openness"),
+                    ):
+                        logger.info("realtime_expression_controls_updated")
+                    else:
+                        logger.warning("realtime_expression_controls_invalid")
             except Exception:
                 logger.exception("Error processing data message")
+
+        stage = "publish_output_track"
+        source = rtc.VideoSource(width, height)
+        output_track = rtc.LocalVideoTrack.create_video_track(
+            "liveportrait-output", source
+        )
+        options = rtc.TrackPublishOptions()
+        options.source = rtc.TrackSource.SOURCE_CAMERA
+        await ctx.room.local_participant.publish_track(output_track, options)
+        logger.info("realtime_output_track_published")
 
         stage = "stream_camera_frames"
         stream = rtc.VideoStream.from_participant(

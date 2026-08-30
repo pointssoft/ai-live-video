@@ -1,7 +1,69 @@
+import math
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Mapping
 
 import torch
+
+
+FACIAL_CONTROL_MIN = -1.0
+FACIAL_CONTROL_MAX = 1.0
+DEFAULT_EYE_OPENNESS = -0.10
+DEFAULT_MOUTH_OPENNESS = -0.15
+_EYE_BLINK_SCALE = 20.0
+_MOUTH_AAA_SCALE = 30.0
+
+
+@dataclass(frozen=True)
+class FacialControls:
+    """Bounded eye and mouth adjustments for the rendered expression."""
+
+    eye_openness: float = DEFAULT_EYE_OPENNESS
+    mouth_openness: float = DEFAULT_MOUTH_OPENNESS
+
+    @classmethod
+    def from_values(
+        cls,
+        eye_openness: object,
+        mouth_openness: object,
+    ) -> "FacialControls | None":
+        eye = _bounded_control(eye_openness)
+        mouth = _bounded_control(mouth_openness)
+        if eye is None or mouth is None:
+            return None
+        return cls(eye_openness=eye, mouth_openness=mouth)
+
+
+def apply_facial_controls(
+    expression: torch.Tensor,
+    controls: FacialControls,
+) -> torch.Tensor:
+    """Apply localized Blink and AAA offsets without changing head pose."""
+    if expression.ndim < 2 or expression.shape[0] == 0:
+        raise ValueError("LivePortrait expression tensor must have a batch dimension.")
+
+    original_shape = expression.shape
+    coordinates_per_batch = expression.numel() // expression.shape[0]
+    if coordinates_per_batch % 3 != 0 or coordinates_per_batch // 3 < 20:
+        raise ValueError(
+            "LivePortrait expression tensor must contain at least 20 XYZ keypoints "
+            "per batch item."
+        )
+
+    adjusted = expression.reshape(expression.shape[0], -1, 3).clone()
+    blink = -controls.eye_openness * _EYE_BLINK_SCALE
+    adjusted[..., 11, 1] += blink * -0.001
+    adjusted[..., 13, 1] += blink * 0.0003
+    adjusted[..., 15, 1] += blink * -0.001
+    adjusted[..., 16, 1] += blink * 0.0003
+    adjusted[..., 1, 1] += blink * -0.00025
+    adjusted[..., 2, 1] += blink * 0.00025
+
+    mouth = controls.mouth_openness * _MOUTH_AAA_SCALE
+    adjusted[..., 19, 1] += mouth * 0.001
+    adjusted[..., 19, 2] += mouth * 0.0001
+    adjusted[..., 17, 1] += mouth * -0.0001
+    return adjusted.reshape(original_shape)
 
 
 @dataclass(frozen=True)
@@ -193,6 +255,15 @@ def limit_stitching_delta(
         _face_extent(source_keypoints) * config.max_stitch_extent_ratio,
     )
     return target_keypoints + correction
+
+
+def _bounded_control(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    return min(FACIAL_CONTROL_MAX, max(FACIAL_CONTROL_MIN, numeric))
 
 
 def _require_motion_keys(info: Mapping[str, torch.Tensor]) -> None:

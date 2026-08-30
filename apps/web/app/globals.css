@@ -127,6 +127,105 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
   gap: 0.5rem;
 }
 
+.expression-controls {
+  gap: 0.9rem;
+  padding: 0.85rem;
+  border: 1px solid #2d3855;
+  border-radius: 0.65rem;
+  background: #0f1629;
+}
+
+.expression-controls-heading,
+.expression-slider-header,
+.expression-slider-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.expression-controls-heading {
+  align-items: flex-start;
+}
+
+.expression-controls-heading h4,
+.expression-controls-heading p {
+  margin: 0;
+}
+
+.expression-controls-heading h4 {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.expression-controls-heading p {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.expression-reset {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0.15rem 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.expression-reset:hover:not(:disabled) {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.expression-reset:focus-visible,
+.expression-slider input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.expression-slider {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.expression-slider-header label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.expression-slider-header output {
+  min-width: 3.8rem;
+  border-radius: 999px;
+  background: #263451;
+  color: var(--text);
+  padding: 0.18rem 0.48rem;
+  font: 700 0.7rem/1.2 monospace;
+  text-align: center;
+}
+
+.expression-slider input[type="range"] {
+  width: 100%;
+  height: 1.5rem;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.expression-slider input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.expression-slider-scale {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
 .viewer-credentials {
   display: grid;
   gap: 0.5rem;
