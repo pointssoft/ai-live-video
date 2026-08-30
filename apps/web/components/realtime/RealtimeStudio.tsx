@@ -23,6 +23,39 @@ interface StoredSession {
   expiresAt: number;
 }
 
+interface ViewerCredentials {
+  wsUrl: string;
+  roomId: string;
+  accessToken: string;
+  expiresInSeconds: number;
+}
+
+interface ViewerCredentialsPanelProps {
+  credentials: ViewerCredentials;
+  copied: boolean;
+  onCopy: () => void;
+}
+
+function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentialsPanelProps) {
+  return (
+    <div className="viewer-credentials">
+      <h4>Read-only app credentials</h4>
+      <label htmlFor="viewer-ws-url">WebSocket URL</label>
+      <input id="viewer-ws-url" readOnly value={credentials.wsUrl} />
+      <label htmlFor="viewer-room-id">Room ID</label>
+      <input id="viewer-room-id" readOnly value={credentials.roomId} />
+      <label htmlFor="viewer-access-token">Access token</label>
+      <textarea id="viewer-access-token" readOnly rows={3} value={credentials.accessToken} />
+      <button type="button" className="secondary" onClick={onCopy}>
+        {copied ? "Copied" : "Copy app credentials"}
+      </button>
+      <p className="viewer-credentials-hint">
+        Read-only token. It expires in {Math.ceil(credentials.expiresInSeconds / 60)} minutes.
+      </p>
+    </div>
+  );
+}
+
 const SESSION_STORAGE_KEY = "mimicmotion_realtime_session";
 const WORKER_WAIT_TIMEOUT_MS = 300_000;
 
@@ -66,6 +99,8 @@ export function RealtimeStudio() {
   const [connecting, setConnecting] = useState(false);
   const [changingPortrait, setChangingPortrait] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [viewerCredentials, setViewerCredentials] = useState<ViewerCredentials | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
   const outputTrackRef = useRef<RemoteTrack | null>(null);
@@ -96,6 +131,24 @@ export function RealtimeStudio() {
       .catch(() => setError("Could not load portraits."));
   }, []);
 
+  const copyViewerCredentials = useCallback(async () => {
+    if (!viewerCredentials) return;
+
+    const payload = JSON.stringify({
+      wsUrl: viewerCredentials.wsUrl,
+      accessToken: viewerCredentials.accessToken,
+      roomId: viewerCredentials.roomId,
+    }, null, 2);
+
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCredentialsCopied(true);
+    } catch (caught) {
+      console.error("Failed to copy viewer credentials:", caught);
+      setError("Could not copy the app credentials.");
+    }
+  }, [viewerCredentials]);
+
   const stop = useCallback(async () => {
     if (workerWaitTimeoutRef.current) {
       clearTimeout(workerWaitTimeoutRef.current);
@@ -114,6 +167,8 @@ export function RealtimeStudio() {
     if (outputVideoRef.current) outputVideoRef.current.srcObject = null;
 
     clearStoredSession();
+    setViewerCredentials(null);
+    setCredentialsCopied(false);
     setConnecting(false);
     setReconnecting(false);
     setStatus("Session ended.");
@@ -258,6 +313,13 @@ export function RealtimeStudio() {
 
       // Store session for reconnection
       const expiresAt = Date.now() + (session.expires_in_seconds * 1000);
+      setViewerCredentials({
+        wsUrl: session.server_url,
+        roomId: session.room_name,
+        accessToken: session.viewer_token,
+        expiresInSeconds: session.expires_in_seconds,
+      });
+      setCredentialsCopied(false);
       storeSession({
         sessionId: session.session_id,
         podId: session.pod_id ?? null,
@@ -335,6 +397,13 @@ export function RealtimeStudio() {
               {portraits.map((portrait) => <option key={portrait.id} value={portrait.id}>{portrait.id.slice(0, 8)}</option>)}
             </select>
           </div>
+          {viewerCredentials && (
+            <ViewerCredentialsPanel
+              credentials={viewerCredentials}
+              copied={credentialsCopied}
+              onCopy={() => void copyViewerCredentials()}
+            />
+          )}
           <div className="live-control-group">
             <button type="button" className="secondary stop-button" onClick={() => void stop()} disabled={!roomRef.current || reconnecting}>Stop Session</button>
           </div>
@@ -364,6 +433,13 @@ export function RealtimeStudio() {
           <button type="button" onClick={start} disabled={!portraitId || connecting || Boolean(roomRef.current)}>Start</button>
           <button type="button" className="secondary" onClick={() => void stop()} disabled={!roomRef.current}>Stop</button>
         </div>
+        {viewerCredentials && (
+          <ViewerCredentialsPanel
+            credentials={viewerCredentials}
+            copied={credentialsCopied}
+            onCopy={() => void copyViewerCredentials()}
+          />
+        )}
         <p role="status">{status}</p>
         {error && <p className="error" role="alert">{error}</p>}
         {!portraits.length && <p><a href="/portraits">Upload a portrait first.</a></p>}

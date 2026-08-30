@@ -266,6 +266,32 @@ def create_participant_token(
     )
 
 
+def create_viewer_token(
+    *,
+    api_key: str,
+    api_secret: str,
+    room_name: str,
+    identity: str,
+    ttl_seconds: int,
+) -> str:
+    return (
+        api.AccessToken(api_key, api_secret)
+        .with_identity(identity)
+        .with_name("Read-only Viewer")
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room_name,
+                can_publish=False,
+                can_subscribe=True,
+                can_publish_data=False,
+            )
+        )
+        .with_ttl(timedelta(seconds=ttl_seconds))
+        .to_jwt()
+    )
+
+
 async def dispatch_agent(
     server_url: str,
     api_key: str,
@@ -405,6 +431,13 @@ async def create_realtime_session(
         metadata=metadata,
         ttl_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
     )
+    viewer_token = create_viewer_token(
+        api_key=settings.LIVEKIT_API_KEY,
+        api_secret=settings.LIVEKIT_API_SECRET,
+        room_name=room_name,
+        identity=f"viewer-{uuid.uuid4()}",
+        ttl_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
+    )
     background_tasks.add_task(
         dispatch_or_terminate_pod,
         settings=settings,
@@ -417,6 +450,7 @@ async def create_realtime_session(
         room_name=room_name,
         server_url=settings.LIVEKIT_URL,
         participant_token=token,
+        viewer_token=viewer_token,
         expires_in_seconds=settings.LIVEKIT_TOKEN_TTL_SECONDS,
         pod_id=pod_id,
     )

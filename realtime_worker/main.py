@@ -8,6 +8,7 @@ from livekit import agents, rtc
 
 from realtime_worker.config import Settings
 from realtime_worker.liveportrait import RealtimeLivePortrait, decode_image
+from realtime_worker.output_frame import prepare_rgb_frame
 
 logger = logging.getLogger("realtime-worker")
 
@@ -20,6 +21,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     stage = "connect"
     participant_identity: str | None = None
     stream: rtc.VideoStream | None = None
+    portrait_change_task: asyncio.Task[None] | None = None
     logger.info("realtime_job_started")
 
     try:
@@ -75,15 +77,21 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         # Handle data messages for portrait changes
         @ctx.room.on("data_received")
         def on_data_received(data: rtc.DataPacket):
+            nonlocal portrait_change_task
             try:
                 message = json.loads(data.data.decode("utf-8"))
                 if message.get("type") == "change_portrait":
                     new_portrait_url = message.get("portrait_url")
-                    if new_portrait_url:
+                    if isinstance(new_portrait_url, str) and new_portrait_url:
                         logger.info("realtime_portrait_change_requested")
-                        # Schedule portrait change in background
-                        asyncio.create_task(
-                            _change_portrait(renderer, new_portrait_url, source)
+                        if (
+                            portrait_change_task is not None
+                            and not portrait_change_task.done()
+                        ):
+                            portrait_change_task.cancel()
+                        portrait_change_task = asyncio.create_task(
+                            _change_portrait(renderer, new_portrait_url),
+                            name="realtime-portrait-change",
                         )
             except Exception:
                 logger.exception("Error processing data message")
@@ -108,12 +116,13 @@ async def entrypoint(ctx: agents.JobContext) -> None:
                 continue
 
             stage = "capture_output_frame"
+            output_frame = prepare_rgb_frame(rendered)
             source.capture_frame(
                 rtc.VideoFrame(
-                    width=width,
-                    height=height,
+                    width=output_frame.width,
+                    height=output_frame.height,
                     type=rtc.VideoBufferType.RGB24,
-                    data=rendered.tobytes(),
+                    data=output_frame.data,
                 ),
                 timestamp_us=event.timestamp_us,
             )
@@ -131,6 +140,13 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         )
         raise
     finally:
+        if portrait_change_task is not None:
+            if not portrait_change_task.done():
+                portrait_change_task.cancel()
+            try:
+                await portrait_change_task
+            except asyncio.CancelledError:
+                pass
         if stream is not None:
             await stream.aclose()
         logger.info(
@@ -142,9 +158,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 async def _change_portrait(
     renderer: RealtimeLivePortrait,
     portrait_url: str,
-    source: rtc.VideoSource,
 ) -> None:
-    """Load a new portrait and update the video source dimensions if needed."""
+    """Download and prepare the latest requested portrait."""
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             response = await client.get(portrait_url)
@@ -154,9 +169,10 @@ async def _change_portrait(
             )
 
         width, height = renderer.set_source(decode_image(response.content))
-        # Note: VideoSource dimensions are set at creation and can't be changed
-        # The renderer will handle different sized portraits internally
-        logger.info("Portrait changed successfully to dimensions: %sx%s", width, height)
+        logger.info(
+            "realtime_portrait_changed",
+            extra={"frame_width": width, "frame_height": height},
+        )
     except Exception:
         logger.exception("Failed to change portrait")
 

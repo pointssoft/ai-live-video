@@ -35,6 +35,7 @@ export interface RealtimeSession {
   room_name: string;
   server_url: string;
   participant_token: string;
+  viewer_token: string;
   expires_in_seconds: number;
   pod_id?: string | null;
 }

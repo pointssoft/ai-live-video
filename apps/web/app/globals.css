@@ -105,13 +105,14 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
 }
 
 .live-sidebar {
-  width: 250px;
+  width: min(360px, 40vw);
   background: var(--surface);
   border-left: 1px solid #2d3855;
   display: flex;
   flex-direction: column;
   padding: 1rem;
   gap: 1rem;
+  overflow-y: auto;
 }
 
 .live-sidebar-header h3 {
@@ -124,6 +125,45 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.viewer-credentials {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #2d3855;
+  border-radius: 0.65rem;
+  background: #0f1629;
+}
+
+.viewer-credentials h4 {
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+}
+
+.viewer-credentials label {
+  font-size: 0.8rem;
+}
+
+.viewer-credentials input,
+.viewer-credentials textarea {
+  width: 100%;
+  border: 1px solid #475470;
+  border-radius: 0.55rem;
+  background: #080d19;
+  color: var(--text);
+  padding: 0.6rem;
+  font: 0.75rem/1.35 monospace;
+}
+
+.viewer-credentials textarea {
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.viewer-credentials-hint {
+  margin: 0;
+  font-size: 0.75rem;
 }
 
 .stop-button {

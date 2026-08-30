@@ -11,6 +11,7 @@ from app.api.v1.realtime_sessions import (
     create_agent_name,
     create_participant_token,
     create_runpod_pod,
+    create_viewer_token,
     dispatch_agent,
 )
 from app.core.config import Settings
@@ -55,6 +56,26 @@ def test_realtime_token_is_scoped_to_room() -> None:
     assert claims.video.can_subscribe is True
     assert claims.video.can_publish_data is True
     assert json.loads(claims.metadata)["portrait_id"] == "portrait-test"
+
+
+def test_realtime_viewer_token_is_read_only() -> None:
+    token = create_viewer_token(
+        api_key="test-key",
+        api_secret="s" * 32,
+        room_name="realtime-test",
+        identity="viewer-test",
+        ttl_seconds=300,
+    )
+
+    claims = api.TokenVerifier("test-key", "s" * 32).verify(token)
+
+    assert claims.identity == "viewer-test"
+    assert claims.video is not None
+    assert claims.video.room_join is True
+    assert claims.video.room == "realtime-test"
+    assert claims.video.can_publish is False
+    assert claims.video.can_subscribe is True
+    assert claims.video.can_publish_data is False
 
 
 def test_realtime_agent_name_is_unique_to_session() -> None:
