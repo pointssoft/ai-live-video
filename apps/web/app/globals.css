@@ -226,6 +226,119 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
   font-size: 0.66rem;
 }
 
+.broadcast-controls {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #2d3855;
+  border-radius: 0.65rem;
+  background: #0f1629;
+}
+
+.broadcast-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.broadcast-heading h4 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.broadcast-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #263451;
+  color: var(--text);
+  padding: 0.2rem 0.48rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.broadcast-status-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.broadcast-status[data-status="connecting"] .broadcast-status-dot,
+.broadcast-status[data-status="stopping"] .broadcast-status-dot {
+  background: #ffd166;
+}
+
+.broadcast-status[data-status="live"] {
+  background: #173d2c;
+}
+
+.broadcast-status[data-status="live"] .broadcast-status-dot {
+  background: #56d68b;
+}
+
+.broadcast-status[data-status="error"] {
+  background: #512929;
+}
+
+.broadcast-status[data-status="error"] .broadcast-status-dot {
+  background: var(--danger);
+}
+
+.broadcast-controls label {
+  font-size: 0.78rem;
+}
+
+.broadcast-url {
+  width: 100%;
+  resize: none;
+  border: 1px solid #475470;
+  border-radius: 0.55rem;
+  background: #080d19;
+  color: var(--text);
+  padding: 0.6rem;
+  overflow-wrap: anywhere;
+  font: 0.75rem/1.35 monospace;
+}
+
+.broadcast-url:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.broadcast-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.broadcast-actions button {
+  min-width: 0;
+  padding: 0.65rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.broadcast-controls a {
+  width: fit-content;
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.broadcast-hint,
+.broadcast-error {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.broadcast-error {
+  color: var(--danger);
+}
+
 .viewer-credentials {
   display: grid;
   gap: 0.5rem;

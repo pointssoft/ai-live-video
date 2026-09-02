@@ -9,9 +9,16 @@ import {
   RoomEvent,
   Track,
   type RemoteTrack,
+  type RemoteVideoTrack,
 } from "livekit-client";
 import { getPortrait, listPortraits } from "@/lib/portraits";
 import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-sessions";
+import {
+  getMediaMtxEndpoints,
+  VideoWhipPublisher,
+  type BroadcastStatus,
+  type MediaMtxEndpoints,
+} from "@/lib/video-whip-publisher";
 import type { Portrait } from "@/types/api";
 
 interface ExpressionControls {
@@ -86,7 +93,96 @@ function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentia
   );
 }
 
+interface BroadcastControlsProps {
+  endpoints: MediaMtxEndpoints | null;
+  status: BroadcastStatus;
+  error: string;
+  copied: boolean;
+  canStart: boolean;
+  hasPublisher: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onCopy: () => void;
+}
+
+function BroadcastControls({
+  endpoints,
+  status,
+  error,
+  copied,
+  canStart,
+  hasPublisher,
+  onStart,
+  onStop,
+  onCopy,
+}: BroadcastControlsProps) {
+  const statusLabel = endpoints
+    ? status.charAt(0).toUpperCase() + status.slice(1)
+    : "Not configured";
+
+  return (
+    <section className="broadcast-controls" aria-labelledby="broadcast-controls-title">
+      <div className="broadcast-heading">
+        <h4 id="broadcast-controls-title">LAN RTSP Broadcast</h4>
+        <span className="broadcast-status" data-status={endpoints ? status : "unconfigured"}>
+          <span className="broadcast-status-dot" aria-hidden="true" />
+          {statusLabel}
+        </span>
+      </div>
+
+      {endpoints ? (
+        <>
+          <label htmlFor="broadcast-rtsp-url">RTSP URL</label>
+          <textarea
+            id="broadcast-rtsp-url"
+            className="broadcast-url"
+            readOnly
+            rows={2}
+            value={endpoints.rtspUrl}
+          />
+          <div className="broadcast-actions">
+            {hasPublisher ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={onStop}
+                disabled={status === "stopping"}
+              >
+                {status === "stopping" ? "Stopping…" : "Stop Broadcast"}
+              </button>
+            ) : (
+              <button type="button" onClick={onStart} disabled={!canStart}>
+                {status === "connecting" ? "Connecting…" : "Start Broadcast"}
+              </button>
+            )}
+            <button type="button" className="secondary" onClick={onCopy}>
+              {copied ? "Copied" : "Copy RTSP URL"}
+            </button>
+          </div>
+          <a href={endpoints.whepUrl} target="_blank" rel="noreferrer">
+            Open WHEP diagnostic viewer
+          </a>
+          <p className="broadcast-hint">
+            Anonymous video-only output for devices on this trusted LAN. LiveKit viewer
+            credentials are not used.
+          </p>
+        </>
+      ) : (
+        <p className="broadcast-hint">
+          Set NEXT_PUBLIC_MEDIAMTX_HOST to enable LAN broadcasting.
+        </p>
+      )}
+
+      {error && <p className="broadcast-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+
 const SESSION_STORAGE_KEY = "mimicmotion_realtime_session";
+const MEDIA_MTX_ENDPOINTS = getMediaMtxEndpoints(
+  process.env.NEXT_PUBLIC_MEDIAMTX_HOST,
+);
 const WORKER_WAIT_TIMEOUT_MS = 300_000;
 const EXPRESSION_CONTROLS_DEBOUNCE_MS = 120;
 const DEFAULT_EXPRESSION_CONTROLS: ExpressionControls = {
@@ -190,12 +286,17 @@ export function RealtimeStudio() {
   const [reconnecting, setReconnecting] = useState(false);
   const [viewerCredentials, setViewerCredentials] = useState<ViewerCredentials | null>(null);
   const [credentialsCopied, setCredentialsCopied] = useState(false);
+  const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus>("idle");
+  const [broadcastError, setBroadcastError] = useState("");
+  const [rtspCopied, setRtspCopied] = useState(false);
+  const [outputReady, setOutputReady] = useState(false);
   const [expressionControls, setExpressionControls] = useState<ExpressionControls>(
     DEFAULT_EXPRESSION_CONTROLS,
   );
   const roomRef = useRef<Room | null>(null);
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
-  const outputTrackRef = useRef<RemoteTrack | null>(null);
+  const outputTrackRef = useRef<RemoteVideoTrack | null>(null);
+  const publisherRef = useRef<VideoWhipPublisher | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
   const sessionInfoRef = useRef<{ sessionId: string; podId: string | null } | null>(null);
@@ -239,6 +340,70 @@ export function RealtimeStudio() {
     }
   }, [viewerCredentials]);
 
+  const stopBroadcast = useCallback(async () => {
+    const publisher = publisherRef.current;
+    if (!publisher) return;
+
+    await publisher.stop();
+    if (publisherRef.current === publisher) publisherRef.current = null;
+    setRtspCopied(false);
+  }, []);
+
+  const startBroadcast = useCallback(async () => {
+    const outputVideo = outputVideoRef.current;
+    if (!MEDIA_MTX_ENDPOINTS) {
+      setBroadcastError("MediaMTX is not configured for this web deployment.");
+      return;
+    }
+    if (
+      !isLive ||
+      !outputTrackRef.current ||
+      !outputReady ||
+      !outputVideo ||
+      outputVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      outputVideo.videoWidth < 1 ||
+      outputVideo.videoHeight < 1
+    ) {
+      setBroadcastError("Wait for the processed output to decode a video frame.");
+      return;
+    }
+
+    await stopBroadcast();
+    setBroadcastError("");
+    setRtspCopied(false);
+
+    const publisher = new VideoWhipPublisher(outputVideo, {
+      endpoint: MEDIA_MTX_ENDPOINTS.whipUrl,
+      width: 1280,
+      height: 720,
+      frameRate: 30,
+      onStatusChange: (nextStatus, nextError) => {
+        if (publisherRef.current !== publisher) return;
+        setBroadcastStatus(nextStatus);
+        setBroadcastError(nextError?.message ?? "");
+      },
+    });
+    publisherRef.current = publisher;
+
+    try {
+      await publisher.start();
+    } catch {
+      // The publisher reports actionable failures through onStatusChange.
+    }
+  }, [isLive, outputReady, stopBroadcast]);
+
+  const copyRtspUrl = useCallback(async () => {
+    if (!MEDIA_MTX_ENDPOINTS) return;
+
+    try {
+      await navigator.clipboard.writeText(MEDIA_MTX_ENDPOINTS.rtspUrl);
+      setRtspCopied(true);
+    } catch (caught) {
+      console.error("Failed to copy RTSP URL:", caught);
+      setBroadcastError("Could not copy the RTSP URL. Select it manually instead.");
+    }
+  }, []);
+
   const stop = useCallback(async () => {
     if (workerWaitTimeoutRef.current) {
       clearTimeout(workerWaitTimeoutRef.current);
@@ -248,6 +413,8 @@ export function RealtimeStudio() {
       clearTimeout(expressionControlsTimeoutRef.current);
       expressionControlsTimeoutRef.current = null;
     }
+
+    await stopBroadcast();
 
     const sessionInfo = sessionInfoRef.current;
     sessionInfoRef.current = null;
@@ -263,6 +430,7 @@ export function RealtimeStudio() {
     clearStoredSession();
     setViewerCredentials(null);
     setCredentialsCopied(false);
+    setOutputReady(false);
     setConnecting(false);
     setReconnecting(false);
     setStatus("Session ended.");
@@ -274,7 +442,7 @@ export function RealtimeStudio() {
         console.error("Failed to terminate realtime pod:", caught);
       }
     }
-  }, []);
+  }, [stopBroadcast]);
 
   const syncExpressionControls = useCallback(
     (room: Room, controls = expressionControlsRef.current) => {
@@ -285,6 +453,49 @@ export function RealtimeStudio() {
     },
     [],
   );
+
+  const registerRoomListeners = useCallback((room: Room) => {
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+      if (roomRef.current !== room || track.kind !== Track.Kind.Video) return;
+
+      const videoTrack = track as RemoteVideoTrack;
+      outputTrackRef.current = videoTrack;
+      setOutputReady(false);
+      if (outputVideoRef.current) videoTrack.attach(outputVideoRef.current);
+      if (workerWaitTimeoutRef.current) {
+        clearTimeout(workerWaitTimeoutRef.current);
+        workerWaitTimeoutRef.current = null;
+      }
+      setStatus("Live");
+      setReconnecting(false);
+      syncExpressionControls(room);
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      if (roomRef.current !== room || track !== outputTrackRef.current) return;
+
+      outputTrackRef.current = null;
+      setOutputReady(false);
+      void stopBroadcast();
+      setStatus("Processed output unavailable.");
+    });
+
+    room.on(RoomEvent.Disconnected, () => {
+      if (roomRef.current !== room) return;
+      if (workerWaitTimeoutRef.current) {
+        clearTimeout(workerWaitTimeoutRef.current);
+        workerWaitTimeoutRef.current = null;
+      }
+      outputTrackRef.current = null;
+      setOutputReady(false);
+      setViewerCredentials(null);
+      setCredentialsCopied(false);
+      setReconnecting(false);
+      clearStoredSession();
+      void stopBroadcast();
+      setStatus("Disconnected.");
+    });
+  }, [stopBroadcast, syncExpressionControls]);
 
   const updateExpressionControls = useCallback((controls: ExpressionControls) => {
     expressionControlsRef.current = controls;
@@ -322,6 +533,7 @@ export function RealtimeStudio() {
 
   const reconnectToSession = useCallback(async (stored: StoredSession) => {
     setStatus("Reconnecting to previous session…");
+    setOutputReady(false);
     setError("");
 
     try {
@@ -334,27 +546,7 @@ export function RealtimeStudio() {
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
 
-      room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind === Track.Kind.Video) {
-          outputTrackRef.current = track;
-          if (outputVideoRef.current) track.attach(outputVideoRef.current);
-          if (workerWaitTimeoutRef.current) {
-            clearTimeout(workerWaitTimeoutRef.current);
-            workerWaitTimeoutRef.current = null;
-          }
-          setStatus("Live");
-          setReconnecting(false);
-          syncExpressionControls(room);
-        }
-      });
-      room.on(RoomEvent.Disconnected, () => {
-        if (workerWaitTimeoutRef.current) {
-          clearTimeout(workerWaitTimeoutRef.current);
-          workerWaitTimeoutRef.current = null;
-        }
-        clearStoredSession();
-        setStatus("Disconnected.");
-      });
+      registerRoomListeners(room);
 
       await room.connect(stored.serverUrl, stored.participantToken);
       const cameraTrack = await createLocalVideoTrack({
@@ -370,7 +562,7 @@ export function RealtimeStudio() {
       await stop();
       throw caught;
     }
-  }, [stop, syncExpressionControls, waitForWorker]);
+  }, [registerRoomListeners, stop, waitForWorker]);
 
   // Check for an existing session on mount.
   useEffect(() => {
@@ -391,7 +583,6 @@ export function RealtimeStudio() {
     if (!roomRef.current || changingPortrait) return;
 
     setChangingPortrait(true);
-    setStatus("Changing portrait…");
     setError("");
 
     try {
@@ -414,15 +605,8 @@ export function RealtimeStudio() {
       currentPortraitIdRef.current = newPortraitId;
       setPortraitId(newPortraitId);
       storePortraitId(newPortraitId);
-      setStatus("Portrait changed successfully");
-
-      // Reset status to "Live" after 2 seconds
-      setTimeout(() => {
-        if (roomRef.current) setStatus("Live");
-      }, 2000);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to change portrait.");
-      setStatus("Live");
     } finally {
       setChangingPortrait(false);
     }
@@ -431,6 +615,7 @@ export function RealtimeStudio() {
   const start = async () => {
     if (!portraitId || connecting || roomRef.current) return;
     setConnecting(true);
+    setOutputReady(false);
     setError("");
     setStatus("Connecting…");
 
@@ -463,26 +648,7 @@ export function RealtimeStudio() {
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
 
-      room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind === Track.Kind.Video) {
-          outputTrackRef.current = track;
-          if (outputVideoRef.current) track.attach(outputVideoRef.current);
-          if (workerWaitTimeoutRef.current) {
-            clearTimeout(workerWaitTimeoutRef.current);
-            workerWaitTimeoutRef.current = null;
-          }
-          setStatus("Live");
-          syncExpressionControls(room);
-        }
-      });
-      room.on(RoomEvent.Disconnected, () => {
-        if (workerWaitTimeoutRef.current) {
-          clearTimeout(workerWaitTimeoutRef.current);
-          workerWaitTimeoutRef.current = null;
-        }
-        clearStoredSession();
-        setStatus("Disconnected.");
-      });
+      registerRoomListeners(room);
 
       await room.connect(session.server_url, session.participant_token);
       const cameraTrack = await createLocalVideoTrack({
@@ -506,7 +672,14 @@ export function RealtimeStudio() {
     return (
       <div className="fullscreen-live-layout">
         <div className="live-output-container">
-          <video ref={outputVideoRef} autoPlay playsInline className="main-live-video" />
+          <video
+            ref={outputVideoRef}
+            autoPlay
+            playsInline
+            onLoadedData={() => setOutputReady(true)}
+            onEmptied={() => setOutputReady(false)}
+            className="main-live-video"
+          />
           {reconnecting && (
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.7)', padding: '20px', borderRadius: '8px', color: 'white' }}>
               Reconnecting to session...
@@ -596,6 +769,26 @@ export function RealtimeStudio() {
               </div>
             </div>
           </div>
+          <BroadcastControls
+            endpoints={MEDIA_MTX_ENDPOINTS}
+            status={broadcastStatus}
+            error={broadcastError}
+            copied={rtspCopied}
+            canStart={Boolean(
+              MEDIA_MTX_ENDPOINTS &&
+              isLive &&
+              outputReady &&
+              !reconnecting &&
+              !publisherRef.current &&
+              broadcastStatus !== "connecting" &&
+              broadcastStatus !== "stopping" &&
+              broadcastStatus !== "live"
+            )}
+            hasPublisher={Boolean(publisherRef.current)}
+            onStart={() => void startBroadcast()}
+            onStop={() => void stopBroadcast()}
+            onCopy={() => void copyRtspUrl()}
+          />
           {viewerCredentials && (
             <ViewerCredentialsPanel
               credentials={viewerCredentials}
@@ -646,7 +839,16 @@ export function RealtimeStudio() {
 
       <div className="realtime-videos">
         <figure><video ref={localVideoRef} autoPlay muted playsInline /><figcaption>Camera</figcaption></figure>
-        <figure><video ref={outputVideoRef} autoPlay playsInline /><figcaption>Processed output</figcaption></figure>
+        <figure>
+          <video
+            ref={outputVideoRef}
+            autoPlay
+            playsInline
+            onLoadedData={() => setOutputReady(true)}
+            onEmptied={() => setOutputReady(false)}
+          />
+          <figcaption>Processed output</figcaption>
+        </figure>
       </div>
     </section>
   );
