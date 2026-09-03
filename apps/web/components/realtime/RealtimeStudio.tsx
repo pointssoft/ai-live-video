@@ -16,6 +16,7 @@ import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-
 import {
   getMediaMtxEndpoints,
   VideoWhipPublisher,
+  type BroadcastRotation,
   type BroadcastStatus,
   type MediaMtxEndpoints,
 } from "@/lib/video-whip-publisher";
@@ -96,6 +97,7 @@ function ViewerCredentialsPanel({ credentials, copied, onCopy }: ViewerCredentia
 interface BroadcastControlsProps {
   endpoints: MediaMtxEndpoints | null;
   status: BroadcastStatus;
+  rotation: BroadcastRotation;
   error: string;
   copied: boolean;
   canStart: boolean;
@@ -103,11 +105,13 @@ interface BroadcastControlsProps {
   onStart: () => void;
   onStop: () => void;
   onCopy: () => void;
+  onRotationChange: (rotation: BroadcastRotation) => void;
 }
 
 function BroadcastControls({
   endpoints,
   status,
+  rotation,
   error,
   copied,
   canStart,
@@ -115,6 +119,7 @@ function BroadcastControls({
   onStart,
   onStop,
   onCopy,
+  onRotationChange,
 }: BroadcastControlsProps) {
   const statusLabel = endpoints
     ? status.charAt(0).toUpperCase() + status.slice(1)
@@ -158,6 +163,21 @@ function BroadcastControls({
             <button type="button" className="secondary" onClick={onCopy}>
               {copied ? "Copied" : "Copy RTSP URL"}
             </button>
+          </div>
+          <div className="broadcast-rotation">
+            <label htmlFor="broadcast-rotation">Rotation</label>
+            <select
+              id="broadcast-rotation"
+              value={rotation}
+              onChange={(event) =>
+                onRotationChange(Number(event.target.value) as BroadcastRotation)
+              }
+            >
+              <option value={0}>0°</option>
+              <option value={90}>90°</option>
+              <option value={180}>180°</option>
+              <option value={270}>270°</option>
+            </select>
           </div>
           <a href={endpoints.whepUrl} target="_blank" rel="noreferrer">
             Open WHEP diagnostic viewer
@@ -288,6 +308,7 @@ export function RealtimeStudio() {
   const [credentialsCopied, setCredentialsCopied] = useState(false);
   const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus>("idle");
   const [broadcastError, setBroadcastError] = useState("");
+  const [broadcastRotation, setBroadcastRotation] = useState<BroadcastRotation>(90);
   const [rtspCopied, setRtspCopied] = useState(false);
   const [outputReady, setOutputReady] = useState(false);
   const [expressionControls, setExpressionControls] = useState<ExpressionControls>(
@@ -297,6 +318,7 @@ export function RealtimeStudio() {
   const cameraTrackRef = useRef<LocalVideoTrack | null>(null);
   const outputTrackRef = useRef<RemoteVideoTrack | null>(null);
   const publisherRef = useRef<VideoWhipPublisher | null>(null);
+  const broadcastRotationRef = useRef<BroadcastRotation>(90);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
   const sessionInfoRef = useRef<{ sessionId: string; podId: string | null } | null>(null);
@@ -349,6 +371,12 @@ export function RealtimeStudio() {
     setRtspCopied(false);
   }, []);
 
+  const setBroadcastRotationBoth = useCallback((rotation: BroadcastRotation) => {
+    broadcastRotationRef.current = rotation;
+    setBroadcastRotation(rotation);
+    publisherRef.current?.setRotation(rotation);
+  }, []);
+
   const startBroadcast = useCallback(async () => {
     const outputVideo = outputVideoRef.current;
     if (!MEDIA_MTX_ENDPOINTS) {
@@ -377,6 +405,7 @@ export function RealtimeStudio() {
       width: 1280,
       height: 720,
       frameRate: 30,
+      rotation: broadcastRotationRef.current,
       onStatusChange: (nextStatus, nextError) => {
         if (publisherRef.current !== publisher) return;
         setBroadcastStatus(nextStatus);
@@ -772,6 +801,7 @@ export function RealtimeStudio() {
           <BroadcastControls
             endpoints={MEDIA_MTX_ENDPOINTS}
             status={broadcastStatus}
+            rotation={broadcastRotation}
             error={broadcastError}
             copied={rtspCopied}
             canStart={Boolean(
@@ -788,6 +818,7 @@ export function RealtimeStudio() {
             onStart={() => void startBroadcast()}
             onStop={() => void stopBroadcast()}
             onCopy={() => void copyRtspUrl()}
+            onRotationChange={setBroadcastRotationBoth}
           />
           {viewerCredentials && (
             <ViewerCredentialsPanel

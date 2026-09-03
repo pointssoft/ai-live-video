@@ -42,6 +42,10 @@ const context = {
   fillStyle: "",
   fillRect: vi.fn(),
   drawImage: vi.fn(),
+  save: vi.fn(),
+  restore: vi.fn(),
+  translate: vi.fn(),
+  rotate: vi.fn(),
 };
 const relayTrack = {
   contentHint: "",
@@ -106,6 +110,10 @@ beforeEach(() => {
   context.fillStyle = "";
   context.fillRect.mockReset();
   context.drawImage.mockReset();
+  context.save.mockReset();
+  context.restore.mockReset();
+  context.translate.mockReset();
+  context.rotate.mockReset();
   relayTrack.contentHint = "";
   relayTrack.stop.mockReset();
   relayStream.getVideoTracks.mockClear();
@@ -243,6 +251,7 @@ describe("VideoWhipPublisher", () => {
     const video = createReadyVideo();
     const publisher = new VideoWhipPublisher(video, {
       endpoint: "http://192.168.0.106:8889/mimicmotion/whip",
+      rotation: 0,
     });
 
     await publisher.start();
@@ -279,6 +288,45 @@ describe("VideoWhipPublisher", () => {
         body: "v=0\r\n",
       }),
     );
+  });
+
+  it("rotates the relay canvas 90 degrees by default", async () => {
+    const video = createReadyVideo(720, 1280);
+    const publisher = new VideoWhipPublisher(video, {
+      endpoint: "http://192.168.0.106:8889/mimicmotion/whip",
+    });
+
+    await publisher.start();
+
+    // 90° is the default. For 720×1280 source, logical size is 1280×720 so the
+    // 1280×720 output is filled exactly: rect = {0,0,1280,720}. The draw is via
+    // translate(640,360) + rotate(π/2) + drawImage centred at (-640, -360).
+    expect(publisher.getRotation()).toBe(90);
+    expect(context.save).toHaveBeenCalledOnce();
+    expect(context.translate).toHaveBeenCalledWith(640, 360);
+    expect(context.rotate).toHaveBeenCalledWith(Math.PI / 2);
+    expect(context.drawImage).toHaveBeenCalledWith(video, -640, -360, 1280, 720);
+    expect(context.restore).toHaveBeenCalledOnce();
+  });
+
+  it("applies a mid-broadcast rotation change to the next drawn frame", async () => {
+    const video = createReadyVideo(720, 1280);
+    const publisher = new VideoWhipPublisher(video, {
+      endpoint: "http://192.168.0.106:8889/mimicmotion/whip",
+    });
+    await publisher.start();
+    context.drawImage.mockClear();
+    context.rotate.mockClear();
+
+    publisher.setRotation(270);
+
+    expect(publisher.getRotation()).toBe(270);
+    expect(context.rotate).toHaveBeenCalledWith(-Math.PI / 2);
+    expect(context.drawImage).toHaveBeenCalledWith(video, -640, -360, 1280, 720);
+
+    context.drawImage.mockClear();
+    publisher.setRotation(270);
+    expect(context.drawImage).not.toHaveBeenCalled();
   });
 
   it("stops and deletes the resolved WHIP resource idempotently", async () => {

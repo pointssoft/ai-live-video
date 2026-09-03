@@ -7,6 +7,7 @@ export interface VideoWhipPublisherOptions {
   frameRate?: number;
   backgroundColor?: string;
   connectionTimeoutMs?: number;
+  rotation?: BroadcastRotation;
   onStatusChange?: (status: BroadcastStatus, error?: Error) => void;
 }
 
@@ -37,6 +38,8 @@ interface NormalizedOptions {
 interface CodecCapabilityWithPayloadType extends RTCRtpCodec {
   preferredPayloadType?: number;
 }
+
+export type BroadcastRotation = 0 | 90 | 180 | 270;
 
 export function containRect(
   sourceWidth: number,
@@ -118,6 +121,7 @@ export class VideoWhipPublisher {
   private resourceUrl: string | null = null;
   private heartbeat = false;
   private lastFrameTime: number | null = null;
+  private rotation: BroadcastRotation;
 
   constructor(
     private readonly sourceVideo: HTMLVideoElement,
@@ -132,10 +136,23 @@ export class VideoWhipPublisher {
       connectionTimeoutMs: options.connectionTimeoutMs ?? 15_000,
       onStatusChange: options.onStatusChange,
     };
+    this.rotation = options.rotation ?? 90;
   }
 
   getStatus(): BroadcastStatus {
     return this.status;
+  }
+
+  getRotation(): BroadcastRotation {
+    return this.rotation;
+  }
+
+  // Rotation only affects the relay canvas draw, so it can change mid-broadcast
+  // without renegotiating the WHIP session.
+  setRotation(rotation: BroadcastRotation): void {
+    if (this.rotation === rotation) return;
+    this.rotation = rotation;
+    this.drawSourceFrame();
   }
 
   async start(): Promise<void> {
@@ -335,17 +352,43 @@ export class VideoWhipPublisher {
     const relayCanvas = this.relayCanvas;
     const sourceWidth = this.sourceVideo.videoWidth;
     const sourceHeight = this.sourceVideo.videoHeight;
+    const rotation = this.rotation;
     if (!context || !relayCanvas || sourceWidth < 1 || sourceHeight < 1) return false;
 
+    const swapAxes = rotation === 90 || rotation === 270;
+    const logicalWidth = swapAxes ? sourceHeight : sourceWidth;
+    const logicalHeight = swapAxes ? sourceWidth : sourceHeight;
     const rect = containRect(
-      sourceWidth,
-      sourceHeight,
+      logicalWidth,
+      logicalHeight,
       relayCanvas.width,
       relayCanvas.height,
     );
+
     context.fillStyle = this.options.backgroundColor;
     context.fillRect(0, 0, relayCanvas.width, relayCanvas.height);
-    context.drawImage(this.sourceVideo, rect.x, rect.y, rect.width, rect.height);
+
+    if (rotation === 0) {
+      context.drawImage(this.sourceVideo, rect.x, rect.y, rect.width, rect.height);
+    } else {
+      const radians =
+        rotation === 90
+          ? Math.PI / 2
+          : rotation === 180
+            ? Math.PI
+            : -Math.PI / 2;
+      context.save();
+      context.translate(relayCanvas.width / 2, relayCanvas.height / 2);
+      context.rotate(radians);
+      context.drawImage(
+        this.sourceVideo,
+        -rect.width / 2,
+        -rect.height / 2,
+        rect.width,
+        rect.height,
+      );
+      context.restore();
+    }
 
     this.heartbeat = !this.heartbeat;
     context.fillStyle = this.heartbeat ? "#000000" : "#ffffff";
