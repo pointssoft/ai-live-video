@@ -14,6 +14,8 @@ import {
 import { getPortrait, listPortraits } from "@/lib/portraits";
 import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-sessions";
 import {
+  BROADCAST_HEIGHT,
+  BROADCAST_WIDTH,
   getMediaMtxEndpoints,
   VideoWhipPublisher,
   type BroadcastRotation,
@@ -402,8 +404,8 @@ export function RealtimeStudio() {
 
     const publisher = new VideoWhipPublisher(outputVideo, {
       endpoint: MEDIA_MTX_ENDPOINTS.whipUrl,
-      width: 1280,
-      height: 720,
+      width: BROADCAST_WIDTH,
+      height: BROADCAST_HEIGHT,
       frameRate: 30,
       rotation: broadcastRotationRef.current,
       onStatusChange: (nextStatus, nextError) => {

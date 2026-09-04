@@ -257,7 +257,9 @@ describe("VideoWhipPublisher", () => {
     await publisher.start();
 
     const peerConnection = FakePeerConnection.instances[0];
-    expect(context.drawImage).toHaveBeenCalledWith(video, 437.5, 0, 405, 720);
+    // 720×1280 source letterboxed into the 2048×2048 square: scale 1.6 gives
+    // 1152×2048, centred horizontally at x = (2048 - 1152) / 2 = 448.
+    expect(context.drawImage).toHaveBeenCalledWith(video, 448, 0, 1152, 2048);
     expect(captureStream).toHaveBeenCalledWith(30);
     expect(relayTrack.contentHint).toBe("motion");
     expect(peerConnection.addTransceiver).toHaveBeenCalledOnce();
@@ -298,14 +300,15 @@ describe("VideoWhipPublisher", () => {
 
     await publisher.start();
 
-    // 90° is the default. For 720×1280 source, logical size is 1280×720 so the
-    // 1280×720 output is filled exactly: rect = {0,0,1280,720}. The draw is via
-    // translate(640,360) + rotate(π/2) + drawImage centred at (-640, -360).
+    // 90° is the default. For a 720×1280 source the logical size is 1280×720,
+    // which scales by 1.6 into 2048×1152 inside the 2048×2048 square. The draw
+    // is via translate(1024,1024) + rotate(π/2) + drawImage centred at
+    // (-1024, -576).
     expect(publisher.getRotation()).toBe(90);
     expect(context.save).toHaveBeenCalledOnce();
-    expect(context.translate).toHaveBeenCalledWith(640, 360);
+    expect(context.translate).toHaveBeenCalledWith(1024, 1024);
     expect(context.rotate).toHaveBeenCalledWith(Math.PI / 2);
-    expect(context.drawImage).toHaveBeenCalledWith(video, -640, -360, 1280, 720);
+    expect(context.drawImage).toHaveBeenCalledWith(video, -1024, -576, 2048, 1152);
     expect(context.restore).toHaveBeenCalledOnce();
   });
 
@@ -322,7 +325,7 @@ describe("VideoWhipPublisher", () => {
 
     expect(publisher.getRotation()).toBe(270);
     expect(context.rotate).toHaveBeenCalledWith(-Math.PI / 2);
-    expect(context.drawImage).toHaveBeenCalledWith(video, -640, -360, 1280, 720);
+    expect(context.drawImage).toHaveBeenCalledWith(video, -1024, -576, 2048, 1152);
 
     context.drawImage.mockClear();
     publisher.setRotation(270);

@@ -1,5 +1,13 @@
 export type BroadcastStatus = "idle" | "connecting" | "live" | "stopping" | "error";
 
+/**
+ * The relay canvas is a 2K square, so the broadcast keeps a 1:1 aspect ratio
+ * regardless of the source orientation or the 90/270 degree rotations that swap
+ * the logical axes. `containRect` letterboxes the source inside it.
+ */
+export const BROADCAST_WIDTH = 2048;
+export const BROADCAST_HEIGHT = 2048;
+
 export interface VideoWhipPublisherOptions {
   endpoint: string;
   width?: number;
@@ -129,8 +137,8 @@ export class VideoWhipPublisher {
   ) {
     this.options = {
       endpoint: options.endpoint,
-      width: options.width ?? 1280,
-      height: options.height ?? 720,
+      width: options.width ?? BROADCAST_WIDTH,
+      height: options.height ?? BROADCAST_HEIGHT,
       frameRate: options.frameRate ?? 30,
       backgroundColor: options.backgroundColor ?? "#000000",
       connectionTimeoutMs: options.connectionTimeoutMs ?? 15_000,
