@@ -49,6 +49,25 @@ interface CodecCapabilityWithPayloadType extends RTCRtpCodec {
 
 export type BroadcastRotation = 0 | 90 | 180 | 270;
 
+export interface BroadcastViewport {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
+
+export const MIN_BROADCAST_ZOOM = 1;
+export const MAX_BROADCAST_ZOOM = 5;
+
+const DEFAULT_BROADCAST_VIEWPORT: BroadcastViewport = {
+  zoom: MIN_BROADCAST_ZOOM,
+  panX: 0,
+  panY: 0,
+};
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
 export function containRect(
   sourceWidth: number,
   sourceHeight: number,
@@ -130,6 +149,7 @@ export class VideoWhipPublisher {
   private heartbeat = false;
   private lastFrameTime: number | null = null;
   private rotation: BroadcastRotation;
+  private viewport: BroadcastViewport = { ...DEFAULT_BROADCAST_VIEWPORT };
 
   constructor(
     private readonly sourceVideo: HTMLVideoElement,
@@ -161,6 +181,38 @@ export class VideoWhipPublisher {
     if (this.rotation === rotation) return;
     this.rotation = rotation;
     this.drawSourceFrame();
+  }
+
+  getViewport(): BroadcastViewport {
+    return { ...this.viewport };
+  }
+
+  // Pan values are normalized to -1..1 so the same framing works at any
+  // broadcast resolution. Positive values move the rendered frame right/down.
+  setViewport(viewport: BroadcastViewport): void {
+    const zoom = Number.isFinite(viewport.zoom)
+      ? clamp(viewport.zoom, MIN_BROADCAST_ZOOM, MAX_BROADCAST_ZOOM)
+      : MIN_BROADCAST_ZOOM;
+    const panX = Number.isFinite(viewport.panX) ? clamp(viewport.panX, -1, 1) : 0;
+    const panY = Number.isFinite(viewport.panY) ? clamp(viewport.panY, -1, 1) : 0;
+    const nextViewport = zoom === MIN_BROADCAST_ZOOM
+      ? { zoom, panX: 0, panY: 0 }
+      : { zoom, panX, panY };
+
+    if (
+      this.viewport.zoom === nextViewport.zoom &&
+      this.viewport.panX === nextViewport.panX &&
+      this.viewport.panY === nextViewport.panY
+    ) {
+      return;
+    }
+
+    this.viewport = nextViewport;
+    this.drawSourceFrame();
+  }
+
+  resetViewport(): void {
+    this.setViewport(DEFAULT_BROADCAST_VIEWPORT);
   }
 
   async start(): Promise<void> {
@@ -376,6 +428,23 @@ export class VideoWhipPublisher {
     context.fillStyle = this.options.backgroundColor;
     context.fillRect(0, 0, relayCanvas.width, relayCanvas.height);
 
+    const { zoom, panX, panY } = this.viewport;
+    const hasViewportTransform = zoom !== MIN_BROADCAST_ZOOM || panX !== 0 || panY !== 0;
+    if (hasViewportTransform) {
+      const maxPanX = (relayCanvas.width * (zoom - 1)) / 2;
+      const maxPanY = (relayCanvas.height * (zoom - 1)) / 2;
+      context.save();
+      context.beginPath();
+      context.rect(0, 0, relayCanvas.width, relayCanvas.height);
+      context.clip();
+      context.translate(
+        relayCanvas.width / 2 + panX * maxPanX,
+        relayCanvas.height / 2 + panY * maxPanY,
+      );
+      context.scale(zoom, zoom);
+      context.translate(-relayCanvas.width / 2, -relayCanvas.height / 2);
+    }
+
     if (rotation === 0) {
       context.drawImage(this.sourceVideo, rect.x, rect.y, rect.width, rect.height);
     } else {
@@ -397,6 +466,8 @@ export class VideoWhipPublisher {
       );
       context.restore();
     }
+
+    if (hasViewportTransform) context.restore();
 
     this.heartbeat = !this.heartbeat;
     context.fillStyle = this.heartbeat ? "#000000" : "#ffffff";

@@ -322,6 +322,96 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid
   font-size: 0.75rem;
 }
 
+.broadcast-viewport {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid #2d3855;
+  border-radius: 0.55rem;
+  background: #080d19;
+}
+
+.broadcast-viewport-heading,
+.broadcast-zoom-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.broadcast-viewport-heading label {
+  font-weight: 700;
+}
+
+.broadcast-viewport-reset {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.broadcast-viewport-reset:hover:not(:disabled) {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.broadcast-zoom-control input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.broadcast-zoom-control output {
+  min-width: 3.2rem;
+  border-radius: 999px;
+  background: #263451;
+  padding: 0.18rem 0.45rem;
+  font: 700 0.7rem/1.2 monospace;
+  text-align: center;
+}
+
+.broadcast-pan-controls {
+  display: grid;
+  grid-template-areas:
+    ". up ."
+    "left center right"
+    ". down .";
+  grid-template-columns: repeat(3, 2.4rem);
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.broadcast-pan-controls button {
+  min-width: 0;
+  height: 2.25rem;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.broadcast-pan-up { grid-area: up; }
+.broadcast-pan-left { grid-area: left; }
+.broadcast-pan-center { grid-area: center; }
+.broadcast-pan-right { grid-area: right; }
+.broadcast-pan-down { grid-area: down; }
+
+.broadcast-viewport-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.broadcast-viewport-reset:focus-visible,
+.broadcast-zoom-control input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .broadcast-controls a {
   width: fit-content;
   color: var(--accent);

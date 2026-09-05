@@ -16,10 +16,13 @@ import { createRealtimeSession, terminateRealtimeSession } from "@/lib/realtime-
 import {
   BROADCAST_HEIGHT,
   BROADCAST_WIDTH,
+  MAX_BROADCAST_ZOOM,
+  MIN_BROADCAST_ZOOM,
   getMediaMtxEndpoints,
   VideoWhipPublisher,
   type BroadcastRotation,
   type BroadcastStatus,
+  type BroadcastViewport,
   type MediaMtxEndpoints,
 } from "@/lib/video-whip-publisher";
 import type { Portrait } from "@/types/api";
@@ -100,6 +103,7 @@ interface BroadcastControlsProps {
   endpoints: MediaMtxEndpoints | null;
   status: BroadcastStatus;
   rotation: BroadcastRotation;
+  viewport: BroadcastViewport;
   error: string;
   copied: boolean;
   canStart: boolean;
@@ -108,12 +112,16 @@ interface BroadcastControlsProps {
   onStop: () => void;
   onCopy: () => void;
   onRotationChange: (rotation: BroadcastRotation) => void;
+  onZoomChange: (zoom: number) => void;
+  onPanChange: (panX: number, panY: number) => void;
+  onViewportReset: () => void;
 }
 
 function BroadcastControls({
   endpoints,
   status,
   rotation,
+  viewport,
   error,
   copied,
   canStart,
@@ -122,6 +130,9 @@ function BroadcastControls({
   onStop,
   onCopy,
   onRotationChange,
+  onZoomChange,
+  onPanChange,
+  onViewportReset,
 }: BroadcastControlsProps) {
   const statusLabel = endpoints
     ? status.charAt(0).toUpperCase() + status.slice(1)
@@ -181,6 +192,88 @@ function BroadcastControls({
               <option value={270}>270°</option>
             </select>
           </div>
+          <div className="broadcast-viewport">
+            <div className="broadcast-viewport-heading">
+              <label htmlFor="broadcast-zoom">Zoom and position</label>
+              <button
+                type="button"
+                className="broadcast-viewport-reset"
+                onClick={onViewportReset}
+                disabled={
+                  viewport.zoom === MIN_BROADCAST_ZOOM &&
+                  viewport.panX === 0 &&
+                  viewport.panY === 0
+                }
+              >
+                Reset
+              </button>
+            </div>
+            <div className="broadcast-zoom-control">
+              <input
+                id="broadcast-zoom"
+                type="range"
+                min={MIN_BROADCAST_ZOOM}
+                max={MAX_BROADCAST_ZOOM}
+                step="0.1"
+                value={viewport.zoom}
+                onChange={(event) => onZoomChange(Number(event.target.value))}
+              />
+              <output htmlFor="broadcast-zoom">{viewport.zoom.toFixed(1)}×</output>
+            </div>
+            <div className="broadcast-pan-controls" aria-label="Move zoomed broadcast frame">
+              <button
+                type="button"
+                className="secondary broadcast-pan-up"
+                aria-label="Move frame up"
+                onClick={() => onPanChange(viewport.panX, viewport.panY - 0.1)}
+                disabled={viewport.zoom === MIN_BROADCAST_ZOOM}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="secondary broadcast-pan-left"
+                aria-label="Move frame left"
+                onClick={() => onPanChange(viewport.panX - 0.1, viewport.panY)}
+                disabled={viewport.zoom === MIN_BROADCAST_ZOOM}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                className="secondary broadcast-pan-center"
+                aria-label="Center frame"
+                onClick={() => onPanChange(0, 0)}
+                disabled={
+                  viewport.zoom === MIN_BROADCAST_ZOOM ||
+                  (viewport.panX === 0 && viewport.panY === 0)
+                }
+              >
+                •
+              </button>
+              <button
+                type="button"
+                className="secondary broadcast-pan-right"
+                aria-label="Move frame right"
+                onClick={() => onPanChange(viewport.panX + 0.1, viewport.panY)}
+                disabled={viewport.zoom === MIN_BROADCAST_ZOOM}
+              >
+                →
+              </button>
+              <button
+                type="button"
+                className="secondary broadcast-pan-down"
+                aria-label="Move frame down"
+                onClick={() => onPanChange(viewport.panX, viewport.panY + 0.1)}
+                disabled={viewport.zoom === MIN_BROADCAST_ZOOM}
+              >
+                ↓
+              </button>
+            </div>
+            <p className="broadcast-viewport-hint">
+              Zoom in, then use the arrows to move the live broadcast frame.
+            </p>
+          </div>
           <a href={endpoints.whepUrl} target="_blank" rel="noreferrer">
             Open WHEP diagnostic viewer
           </a>
@@ -207,6 +300,11 @@ const MEDIA_MTX_ENDPOINTS = getMediaMtxEndpoints(
 );
 const WORKER_WAIT_TIMEOUT_MS = 300_000;
 const EXPRESSION_CONTROLS_DEBOUNCE_MS = 120;
+const DEFAULT_BROADCAST_VIEWPORT: BroadcastViewport = {
+  zoom: MIN_BROADCAST_ZOOM,
+  panX: 0,
+  panY: 0,
+};
 const DEFAULT_EXPRESSION_CONTROLS: ExpressionControls = {
   eyeOpenness: -0.10,
   mouthOpenness: -0.15,
@@ -311,6 +409,9 @@ export function RealtimeStudio() {
   const [broadcastStatus, setBroadcastStatus] = useState<BroadcastStatus>("idle");
   const [broadcastError, setBroadcastError] = useState("");
   const [broadcastRotation, setBroadcastRotation] = useState<BroadcastRotation>(90);
+  const [broadcastViewport, setBroadcastViewport] = useState<BroadcastViewport>(
+    DEFAULT_BROADCAST_VIEWPORT,
+  );
   const [rtspCopied, setRtspCopied] = useState(false);
   const [outputReady, setOutputReady] = useState(false);
   const [expressionControls, setExpressionControls] = useState<ExpressionControls>(
@@ -321,6 +422,7 @@ export function RealtimeStudio() {
   const outputTrackRef = useRef<RemoteVideoTrack | null>(null);
   const publisherRef = useRef<VideoWhipPublisher | null>(null);
   const broadcastRotationRef = useRef<BroadcastRotation>(90);
+  const broadcastViewportRef = useRef<BroadcastViewport>(DEFAULT_BROADCAST_VIEWPORT);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const outputVideoRef = useRef<HTMLVideoElement>(null);
   const sessionInfoRef = useRef<{ sessionId: string; podId: string | null } | null>(null);
@@ -379,6 +481,34 @@ export function RealtimeStudio() {
     publisherRef.current?.setRotation(rotation);
   }, []);
 
+  const setBroadcastViewportBoth = useCallback((viewport: BroadcastViewport) => {
+    const nextViewport = {
+      zoom: Math.min(MAX_BROADCAST_ZOOM, Math.max(MIN_BROADCAST_ZOOM, viewport.zoom)),
+      panX: Math.min(1, Math.max(-1, viewport.panX)),
+      panY: Math.min(1, Math.max(-1, viewport.panY)),
+    };
+    if (nextViewport.zoom === MIN_BROADCAST_ZOOM) {
+      nextViewport.panX = 0;
+      nextViewport.panY = 0;
+    }
+
+    broadcastViewportRef.current = nextViewport;
+    setBroadcastViewport(nextViewport);
+    publisherRef.current?.setViewport(nextViewport);
+  }, []);
+
+  const setBroadcastZoom = useCallback((zoom: number) => {
+    setBroadcastViewportBoth({ ...broadcastViewportRef.current, zoom });
+  }, [setBroadcastViewportBoth]);
+
+  const setBroadcastPan = useCallback((panX: number, panY: number) => {
+    setBroadcastViewportBoth({ ...broadcastViewportRef.current, panX, panY });
+  }, [setBroadcastViewportBoth]);
+
+  const resetBroadcastViewport = useCallback(() => {
+    setBroadcastViewportBoth(DEFAULT_BROADCAST_VIEWPORT);
+  }, [setBroadcastViewportBoth]);
+
   const startBroadcast = useCallback(async () => {
     const outputVideo = outputVideoRef.current;
     if (!MEDIA_MTX_ENDPOINTS) {
@@ -414,6 +544,7 @@ export function RealtimeStudio() {
         setBroadcastError(nextError?.message ?? "");
       },
     });
+    publisher.setViewport(broadcastViewportRef.current);
     publisherRef.current = publisher;
 
     try {
@@ -804,6 +935,7 @@ export function RealtimeStudio() {
             endpoints={MEDIA_MTX_ENDPOINTS}
             status={broadcastStatus}
             rotation={broadcastRotation}
+            viewport={broadcastViewport}
             error={broadcastError}
             copied={rtspCopied}
             canStart={Boolean(
@@ -821,6 +953,9 @@ export function RealtimeStudio() {
             onStop={() => void stopBroadcast()}
             onCopy={() => void copyRtspUrl()}
             onRotationChange={setBroadcastRotationBoth}
+            onZoomChange={setBroadcastZoom}
+            onPanChange={setBroadcastPan}
+            onViewportReset={resetBroadcastViewport}
           />
           {viewerCredentials && (
             <ViewerCredentialsPanel

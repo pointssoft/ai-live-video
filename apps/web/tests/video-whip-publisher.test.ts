@@ -44,7 +44,11 @@ const context = {
   drawImage: vi.fn(),
   save: vi.fn(),
   restore: vi.fn(),
+  beginPath: vi.fn(),
+  rect: vi.fn(),
+  clip: vi.fn(),
   translate: vi.fn(),
+  scale: vi.fn(),
   rotate: vi.fn(),
 };
 const relayTrack = {
@@ -112,7 +116,11 @@ beforeEach(() => {
   context.drawImage.mockReset();
   context.save.mockReset();
   context.restore.mockReset();
+  context.beginPath.mockReset();
+  context.rect.mockReset();
+  context.clip.mockReset();
   context.translate.mockReset();
+  context.scale.mockReset();
   context.rotate.mockReset();
   relayTrack.contentHint = "";
   relayTrack.stop.mockReset();
@@ -330,6 +338,46 @@ describe("VideoWhipPublisher", () => {
     context.drawImage.mockClear();
     publisher.setRotation(270);
     expect(context.drawImage).not.toHaveBeenCalled();
+  });
+
+  it("applies zoom and normalized pan without restarting the broadcast", async () => {
+    const video = createReadyVideo(720, 1280);
+    const publisher = new VideoWhipPublisher(video, {
+      endpoint: "http://192.168.0.106:8889/mimicmotion/whip",
+      rotation: 0,
+    });
+    await publisher.start();
+    context.save.mockClear();
+    context.restore.mockClear();
+    context.translate.mockClear();
+    context.drawImage.mockClear();
+
+    publisher.setViewport({ zoom: 2, panX: 0.5, panY: -0.25 });
+
+    expect(publisher.getViewport()).toEqual({ zoom: 2, panX: 0.5, panY: -0.25 });
+    expect(context.beginPath).toHaveBeenCalledOnce();
+    expect(context.rect).toHaveBeenCalledWith(0, 0, 2048, 2048);
+    expect(context.clip).toHaveBeenCalledOnce();
+    expect(context.translate).toHaveBeenNthCalledWith(1, 1536, 768);
+    expect(context.scale).toHaveBeenCalledWith(2, 2);
+    expect(context.translate).toHaveBeenNthCalledWith(2, -1024, -1024);
+    expect(context.drawImage).toHaveBeenCalledWith(video, 448, 0, 1152, 2048);
+    expect(context.save).toHaveBeenCalledOnce();
+    expect(context.restore).toHaveBeenCalledOnce();
+    expect(FakePeerConnection.instances).toHaveLength(1);
+  });
+
+  it("clamps and resets the broadcast viewport", async () => {
+    const publisher = new VideoWhipPublisher(createReadyVideo(), {
+      endpoint: "http://192.168.0.106:8889/mimicmotion/whip",
+    });
+    await publisher.start();
+
+    publisher.setViewport({ zoom: 10, panX: 2, panY: -2 });
+    expect(publisher.getViewport()).toEqual({ zoom: 5, panX: 1, panY: -1 });
+
+    publisher.resetViewport();
+    expect(publisher.getViewport()).toEqual({ zoom: 1, panX: 0, panY: 0 });
   });
 
   it("stops and deletes the resolved WHIP resource idempotently", async () => {
